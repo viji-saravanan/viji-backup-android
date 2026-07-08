@@ -23,6 +23,11 @@ do_not_read_when:
 - Client-side encryption is future-only.
 - Do not store Arya's Drive credentials on user devices.
 - Do not auto-delete remote files in MVP.
+- Drive upload folder is `My Drive > Viji > BACKUP > Viji Phone Uploads`, owned by `owner.primary@example.test`.
+- Allowed accounts are `owner.primary@example.test`, `owner.alternate@example.test`, `primary.user@example.test`, and `alternate.user@example.test`.
+- Completion email should go to Arya and Viji; MVP config currently includes all allowed accounts until primary notification aliases are narrowed.
+- MVP email method is Google Apps Script `MailApp` relay owned by Arya.
+- OPPO CPH2527 is the first known target phone model; exact Android version is pending physical device access.
 
 ## Assumptions
 
@@ -39,11 +44,8 @@ do_not_read_when:
 |---|---|---|
 | Does upload into Arya's shared My Drive folder count against Arya's storage or the uploading user's storage? | Quota behavior affects user expectations and failure handling. | Phase 4 Drive destination spike |
 | Can `drive.file` plus folder selection support the desired shared folder workflow end to end? | Determines OAuth scope risk and consent complexity. | Phase 4 Drive destination spike |
-| Should email go only to the app user, or also to Arya? | Privacy and monitoring behavior. | Before email implementation |
 | What is the first supported Android version? | Affects permissions, WorkManager behavior, and testing matrix. | Android project setup |
-| Which folders are critical first? | Helps test with realistic data. | Before sync engine tests |
 | Should public APK allow only preconfigured allowlisted users? | Affects onboarding and support. | Before public release |
-| What is the app name? | Needed for OAuth consent, APK labels, and docs. | Before OAuth setup |
 | Should MVP preserve old remote versions before overwrite? Recommended answer: yes, keep last 3 versions or 30 days, whichever is smaller. | Protects against corrupt or unwanted local changes being uploaded over the only good backup; costs Drive storage. | Before changed-file upload implementation |
 | Should MVP include basic exclusions only, or full include/exclude pattern rules? Recommended answer: basic exclusions only. | Full pattern rules are useful but can delay the core backup engine. | Before settings implementation |
 

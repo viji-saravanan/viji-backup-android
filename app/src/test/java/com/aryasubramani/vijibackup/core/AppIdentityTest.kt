@@ -10,6 +10,7 @@ class AppIdentityTest {
     fun appIdentityUsesConfirmedNameAndPackage() {
         assertEquals("Viji Backup", AppIdentity.displayName)
         assertEquals("com.aryasubramani.vijibackup", AppIdentity.baseApplicationId)
+        assertEquals("com.aryasubramani.vijibackup.internal", AppIdentity.internalApplicationId)
     }
 
     @Test

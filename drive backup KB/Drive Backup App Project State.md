@@ -42,6 +42,46 @@ Known files:
 - app context instrumented smoke test
 - `README.md`
 
+## Confirmed Cloud Setup Values
+
+These values are non-secret configuration and may appear in the private repo and APK. Do not commit downloaded OAuth JSON bundles, refresh tokens, app passwords, service account keys, or signing keystores.
+
+Allowed Google accounts:
+
+- `owner.primary@example.test`
+- `owner.alternate@example.test`
+- `primary.user@example.test`
+- `alternate.user@example.test`
+
+Drive destination:
+
+- Parent folder: `My Drive > Viji > BACKUP`
+- Parent folder ID: `<private-drive-parent-folder-id>`
+- Upload folder: `My Drive > Viji > BACKUP > Viji Phone Uploads`
+- Upload folder ID: `<private-drive-upload-folder-id>`
+- Upload folder owner: `owner.primary@example.test`
+
+Manual Drive access tests passed for:
+
+- `primary.user@example.test`
+- `alternate.user@example.test`
+- `owner.alternate@example.test`
+
+Each tested account could open the upload folder, create a test folder, upload a test file, and delete its own test file.
+
+OAuth debug client IDs:
+
+- Internal debug package `com.aryasubramani.vijibackup.internal`: `<private-internal-android-oauth-client-id>`
+- Public debug package `com.aryasubramani.vijibackup`: `<private-public-android-oauth-client-id>`
+
+The OAuth client mapping is based on the creation order followed during setup. Before implementing auth, verify this mapping in Google Cloud Console because the downloaded JSON did not include package metadata.
+
+Email notification defaults:
+
+- Sender: `owner.primary@example.test`
+- Recipients for now: all allowed accounts.
+- Preferred method: Google Apps Script `MailApp` relay owned by Arya.
+
 ## Current Gaps
 
 - Root is a git repository on branch `setup/phase-1-foundation`.

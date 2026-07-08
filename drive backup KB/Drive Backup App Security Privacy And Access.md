@@ -24,7 +24,21 @@ Arya controls access by:
 
 ## Shared Folder Model
 
-Arya creates the parent Drive folder and shares it with the user as Editor. The app uploads into this folder after the user signs in and authorizes access.
+Arya creates the parent Drive folder and shares only the dedicated upload child folder with approved accounts as Editor. The app uploads into that child folder after the user signs in and authorizes access.
+
+Confirmed destination:
+
+- Parent: `My Drive > Viji > BACKUP`
+- Upload child: `My Drive > Viji > BACKUP > Viji Phone Uploads`
+- Upload folder ID: `<private-drive-upload-folder-id>`
+- Owner: `owner.primary@example.test`
+
+Approved Editor accounts for the upload child:
+
+- `primary.user@example.test`
+- `alternate.user@example.test`
+- `owner.alternate@example.test`
+- `owner.primary@example.test` as owner
 
 The app should clearly state:
 
@@ -37,6 +51,13 @@ Prefer the narrowest Drive scope that supports the final implementation. Start b
 ## Allowlist
 
 MVP can use a bundled allowlist for approved Google account emails.
+
+Confirmed MVP allowlist:
+
+- `owner.primary@example.test`
+- `owner.alternate@example.test`
+- `primary.user@example.test`
+- `alternate.user@example.test`
 
 Future version can support a remotely fetched allowlist only if:
 
@@ -57,6 +78,8 @@ Future version can support a remotely fetched allowlist only if:
 Email summaries include failed filenames because the user requested that behavior and recipients are controlled.
 
 Email should not include file contents.
+
+MVP notification method is a Google Apps Script `MailApp` relay owned by `owner.primary@example.test`. Do not embed SMTP passwords, Gmail app passwords, refresh tokens, or Apps Script relay secrets directly in source code or APK resources.
 
 Default email fields:
 
@@ -96,6 +119,7 @@ If private mode is added:
 - Wrong Google account signing in.
 - Shared folder permission accidentally widened.
 - Leaked email adapter secret.
+- Downloaded `client_secret_*.json` accidentally committed.
 - Token leakage through logs.
 - Sensitive filenames in email.
 - Backups owned by unexpected Google account.
