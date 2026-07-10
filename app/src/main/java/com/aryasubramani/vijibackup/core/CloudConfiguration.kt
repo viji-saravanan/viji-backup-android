@@ -1,34 +1,21 @@
 package com.aryasubramani.vijibackup.core
 
+import com.aryasubramani.vijibackup.BuildConfig
+import java.util.Locale
+
 object CloudConfiguration {
     const val driveFileScope = "https://www.googleapis.com/auth/drive.file"
-    const val driveUploadFolderId = "<private-drive-upload-folder-id>"
-    const val driveUploadFolderOwnerEmail = "owner.primary@example.test"
 
-    const val internalDebugAndroidOAuthClientId =
-        "<private-internal-android-oauth-client-id>"
-    const val publicDebugAndroidOAuthClientId =
-        "<private-public-android-oauth-client-id>"
+    val driveUploadFolderId = BuildConfig.DRIVE_UPLOAD_FOLDER_ID.trim()
+    val androidOAuthClientId = BuildConfig.ANDROID_OAUTH_CLIENT_ID.trim()
 
-    const val emailSender = "owner.primary@example.test"
-    const val emailMethod = "google-apps-script-mailapp-relay"
-
-    val allowedGoogleAccounts = setOf(
-        "owner.primary@example.test",
-        "owner.alternate@example.test",
-        "primary.user@example.test",
-        "alternate.user@example.test",
-    )
-
-    val completionEmailRecipients = allowedGoogleAccounts
+    val allowedGoogleAccounts = BuildConfig.ALLOWED_GOOGLE_ACCOUNTS
+        .split(',')
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .map { it.lowercase(Locale.ROOT) }
+        .toSet()
 
     fun isAllowedGoogleAccount(email: String): Boolean =
-        email.trim().lowercase() in allowedGoogleAccounts
-
-    fun androidOAuthClientIdForApplicationId(applicationId: String): String? =
-        when (applicationId) {
-            AppIdentity.internalApplicationId -> internalDebugAndroidOAuthClientId
-            AppIdentity.baseApplicationId -> publicDebugAndroidOAuthClientId
-            else -> null
-        }
+        email.trim().lowercase(Locale.ROOT) in allowedGoogleAccounts
 }

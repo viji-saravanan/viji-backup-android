@@ -1,6 +1,68 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
+}
+
+val privateProperties = providers
+    .fileContents(rootProject.layout.projectDirectory.file("private.properties"))
+    .asText
+    .orElse("")
+    .map { content ->
+        Properties().apply {
+            if (content.isNotBlank()) {
+                content.reader().use(::load)
+            }
+        }
+    }
+
+fun privateConfigurationValue(gradleKey: String, environmentKey: String): String =
+    providers
+        .gradleProperty(gradleKey)
+        .orElse(providers.environmentVariable(environmentKey))
+        .orElse(privateProperties.map { it.getProperty(gradleKey).orEmpty() })
+        .getOrElse("")
+        .trim()
+
+fun String.asBuildConfigString(): String =
+    "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val driveUploadFolderId = privateConfigurationValue(
+    gradleKey = "vijiBackup.driveUploadFolderId",
+    environmentKey = "VIJI_BACKUP_DRIVE_UPLOAD_FOLDER_ID",
+)
+val allowedGoogleAccounts = privateConfigurationValue(
+    gradleKey = "vijiBackup.allowedGoogleAccounts",
+    environmentKey = "VIJI_BACKUP_ALLOWED_GOOGLE_ACCOUNTS",
+)
+val internalAndroidOAuthClientId = privateConfigurationValue(
+    gradleKey = "vijiBackup.internalAndroidOAuthClientId",
+    environmentKey = "VIJI_BACKUP_INTERNAL_ANDROID_OAUTH_CLIENT_ID",
+)
+val publicAndroidOAuthClientId = privateConfigurationValue(
+    gradleKey = "vijiBackup.publicAndroidOAuthClientId",
+    environmentKey = "VIJI_BACKUP_PUBLIC_ANDROID_OAUTH_CLIENT_ID",
+)
+
+val oauthClientIdPattern = Regex("[0-9]+-[A-Za-z0-9_-]+\\.apps\\.googleusercontent\\.com")
+mapOf(
+    "vijiBackup.internalAndroidOAuthClientId" to internalAndroidOAuthClientId,
+    "vijiBackup.publicAndroidOAuthClientId" to publicAndroidOAuthClientId,
+).forEach { (key, value) ->
+    require(value.isEmpty() || value.matches(oauthClientIdPattern)) {
+        "$key must be a Google OAuth client ID"
+    }
+}
+
+val normalizedAllowedGoogleAccounts = allowedGoogleAccounts
+    .split(',')
+    .map(String::trim)
+    .filter(String::isNotEmpty)
+    .map(String::lowercase)
+
+require(normalizedAllowedGoogleAccounts.size == normalizedAllowedGoogleAccounts.toSet().size) {
+    "vijiBackup.allowedGoogleAccounts must not contain duplicate addresses"
 }
 
 android {
@@ -18,6 +80,17 @@ android {
         versionCode = 1
         versionName = "1.0"
 
+        buildConfigField(
+            "String",
+            "DRIVE_UPLOAD_FOLDER_ID",
+            driveUploadFolderId.asBuildConfigString(),
+        )
+        buildConfigField(
+            "String",
+            "ALLOWED_GOOGLE_ACCOUNTS",
+            normalizedAllowedGoogleAccounts.joinToString(",").asBuildConfigString(),
+        )
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -27,10 +100,20 @@ android {
             dimension = "distribution"
             applicationIdSuffix = ".internal"
             versionNameSuffix = "-internal"
+            buildConfigField(
+                "String",
+                "ANDROID_OAUTH_CLIENT_ID",
+                internalAndroidOAuthClientId.asBuildConfigString(),
+            )
             resValue("string", "app_channel", "internal")
         }
         create("public") {
             dimension = "distribution"
+            buildConfigField(
+                "String",
+                "ANDROID_OAUTH_CLIENT_ID",
+                publicAndroidOAuthClientId.asBuildConfigString(),
+            )
             resValue("string", "app_channel", "public")
         }
     }
@@ -47,6 +130,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
+        buildConfig = true
         compose = true
         resValues = true
     }

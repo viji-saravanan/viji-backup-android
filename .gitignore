@@ -1,6 +1,7 @@
 *.iml
 .gradle
 /local.properties
+/private.properties
 /.idea
 /.obsidian
 /drive backup KB/.obsidian
