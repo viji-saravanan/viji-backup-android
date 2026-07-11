@@ -2,8 +2,10 @@ package com.aryasubramani.vijibackup.auth.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.aryasubramani.vijibackup.auth.domain.GoogleAccount
@@ -54,4 +56,10 @@ class DataStoreAuthSessionStore(
     }
 }
 
-internal val Context.authSessionDataStore by preferencesDataStore(name = "auth_session")
+internal fun authSessionCorruptionHandler() =
+    ReplaceFileCorruptionHandler<Preferences> { emptyPreferences() }
+
+internal val Context.authSessionDataStore by preferencesDataStore(
+    name = "auth_session",
+    corruptionHandler = authSessionCorruptionHandler(),
+)

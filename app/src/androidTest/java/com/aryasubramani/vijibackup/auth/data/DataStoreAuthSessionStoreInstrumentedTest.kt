@@ -1,5 +1,7 @@
 package com.aryasubramani.vijibackup.auth.data
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -8,8 +10,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.aryasubramani.vijibackup.auth.domain.GoogleAccount
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -26,9 +29,9 @@ class DataStoreAuthSessionStoreInstrumentedTest {
     fun approvedMetadataRoundTripsWithoutTokenMaterialAndClears() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val file = File(context.cacheDir, "auth-session-${UUID.randomUUID()}.preferences_pb")
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val dataStore = PreferenceDataStoreFactory.create(scope = scope) { file }
-        val store = DataStoreAuthSessionStore(dataStore)
+        val fixture = createStoreFixture(file)
+        val dataStore = fixture.dataStore
+        val store = fixture.store
         val account = requireNotNull(
             GoogleAccount.create(
                 subject = "test-approved-google-subject",
@@ -74,8 +77,77 @@ class DataStoreAuthSessionStoreInstrumentedTest {
 
             assertTrue(runCatching { store.read() }.isFailure)
         } finally {
-            scope.cancel()
+            fixture.close()
             file.delete()
         }
     }
+
+    @Test
+    fun approvedMetadataAndClearSurviveStoreRecreation() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val file = File(context.cacheDir, "auth-session-restart-${UUID.randomUUID()}.preferences_pb")
+        val account = requireNotNull(
+            GoogleAccount.create(
+                subject = "test-restart-google-subject",
+                email = "restart.user@example.test",
+                displayName = "Restart User",
+            ),
+        )
+
+        val first = createStoreFixture(file)
+        first.store.save(account)
+        first.close()
+
+        val second = createStoreFixture(file)
+        assertEquals(account, second.store.read())
+        second.store.clear()
+        second.close()
+
+        val third = createStoreFixture(file)
+        try {
+            assertNull(third.store.read())
+        } finally {
+            third.close()
+            file.delete()
+        }
+    }
+
+    @Test
+    fun corruptPreferenceFileRecoversToSignedOut() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val file = File(context.cacheDir, "auth-session-corrupt-${UUID.randomUUID()}.preferences_pb")
+        file.writeBytes(byteArrayOf(0x0A, 0x05, 0x01))
+        val fixture = createStoreFixture(file, recoverCorruption = true)
+
+        try {
+            assertNull(fixture.store.read())
+            assertTrue(fixture.dataStore.data.first().asMap().isEmpty())
+        } finally {
+            fixture.close()
+            file.delete()
+        }
+    }
+}
+
+private class StoreFixture(
+    val scope: CoroutineScope,
+    val dataStore: DataStore<Preferences>,
+) {
+    val store = DataStoreAuthSessionStore(dataStore)
+
+    suspend fun close() {
+        scope.coroutineContext[Job]?.cancelAndJoin()
+    }
+}
+
+private fun createStoreFixture(
+    file: File,
+    recoverCorruption: Boolean = false,
+): StoreFixture {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val dataStore = PreferenceDataStoreFactory.create(
+        corruptionHandler = if (recoverCorruption) authSessionCorruptionHandler() else null,
+        scope = scope,
+    ) { file }
+    return StoreFixture(scope = scope, dataStore = dataStore)
 }
