@@ -201,6 +201,63 @@ class AuthSessionManagerTest {
             result,
         )
         assertEquals(approvedAccount(), store.account)
+        assertEquals(1, credentialStateClearer.clearCount)
+    }
+
+    @Test
+    fun blockedAccountReportsLocalCleanupFailureIndependently() = runTest {
+        val cachedAccount = approvedAccount()
+        val store = RecordingAuthSessionStore().apply {
+            account = cachedAccount
+            clearFailure = IllegalStateException("test storage failure")
+        }
+        val credentialStateClearer = RecordingCredentialStateClearer()
+        val manager = AuthSessionManager(
+            accessPolicy = AccountAccessPolicy(TEST_ALLOWED_GOOGLE_ACCOUNTS),
+            sessionStore = store,
+            credentialStateClearer = credentialStateClearer,
+        )
+        val blockedAccount = blockedAccount()
+
+        val result = manager.authorize(blockedAccount)
+
+        assertEquals(
+            AuthorizeAccountResult.Blocked(
+                account = blockedAccount,
+                localStateCleared = false,
+                providerStateCleared = true,
+            ),
+            result,
+        )
+        assertEquals(cachedAccount, store.account)
+        assertEquals(1, credentialStateClearer.clearCount)
+    }
+
+    @Test
+    fun blockedAccountReportsProviderCleanupFailureIndependently() = runTest {
+        val store = RecordingAuthSessionStore().apply { account = approvedAccount() }
+        val credentialStateClearer = RecordingCredentialStateClearer().apply {
+            clearFailure = IllegalStateException("test provider failure")
+        }
+        val manager = AuthSessionManager(
+            accessPolicy = AccountAccessPolicy(TEST_ALLOWED_GOOGLE_ACCOUNTS),
+            sessionStore = store,
+            credentialStateClearer = credentialStateClearer,
+        )
+        val blockedAccount = blockedAccount()
+
+        val result = manager.authorize(blockedAccount)
+
+        assertEquals(
+            AuthorizeAccountResult.Blocked(
+                account = blockedAccount,
+                localStateCleared = true,
+                providerStateCleared = false,
+            ),
+            result,
+        )
+        assertEquals(null, store.account)
+        assertEquals(1, credentialStateClearer.clearCount)
     }
 
     @Test
@@ -217,6 +274,21 @@ class AuthSessionManagerTest {
             runTest { manager.authorize(approvedAccount()) }
         }
     }
+
+    @Test
+    fun fatalErrorsAreNeverConvertedToAuthFailures() {
+        val manager = AuthSessionManager(
+            accessPolicy = AccountAccessPolicy(TEST_ALLOWED_GOOGLE_ACCOUNTS),
+            sessionStore = RecordingAuthSessionStore().apply {
+                saveFailure = AssertionError("test fatal error")
+            },
+            credentialStateClearer = RecordingCredentialStateClearer(),
+        )
+
+        assertThrows(AssertionError::class.java) {
+            runTest { manager.authorize(approvedAccount()) }
+        }
+    }
 }
 
 private fun approvedAccount() = requireNotNull(
@@ -224,6 +296,14 @@ private fun approvedAccount() = requireNotNull(
         subject = "test-approved-google-subject",
         email = TEST_APPROVED_EMAIL,
         displayName = "Primary User",
+    ),
+)
+
+private fun blockedAccount() = requireNotNull(
+    GoogleAccount.create(
+        subject = "test-blocked-google-subject",
+        email = "blocked.user@example.test",
+        displayName = "Blocked User",
     ),
 )
 

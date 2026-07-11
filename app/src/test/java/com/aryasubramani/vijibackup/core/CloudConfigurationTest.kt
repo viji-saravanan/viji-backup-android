@@ -13,6 +13,7 @@ class CloudConfigurationTest {
         )
     }
 
+    @Test
     fun driveScopeRemainsLeastPrivilege() {
         assertEquals("https://www.googleapis.com/auth/drive.file", CloudConfiguration.driveFileScope)
     }

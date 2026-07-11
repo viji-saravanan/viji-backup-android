@@ -60,7 +60,7 @@ private suspend fun <T> captureFailure(block: suspend () -> T): Result<T> =
         Result.success(block())
     } catch (cancellation: CancellationException) {
         throw cancellation
-    } catch (failure: Throwable) {
+    } catch (failure: Exception) {
         Result.failure(failure)
     }
 
