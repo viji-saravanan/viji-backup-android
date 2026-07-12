@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class AuthSessionManagerTest {
@@ -106,6 +107,7 @@ class AuthSessionManagerTest {
 
         assertEquals(SignOutResult.SignedOut(providerStateCleared = true), result)
         assertEquals(null, store.account)
+        assertEquals(false, store.providerCleanupPending)
         assertEquals(1, credentialStateClearer.clearCount)
     }
 
@@ -125,7 +127,17 @@ class AuthSessionManagerTest {
 
         assertEquals(SignOutResult.SignedOut(providerStateCleared = false), result)
         assertEquals(null, store.account)
+        assertEquals(true, store.providerCleanupPending)
         assertEquals(1, credentialStateClearer.clearCount)
+
+        credentialStateClearer.clearFailure = null
+
+        assertEquals(
+            LoadAuthSessionResult.SignedOut(providerStateCleared = true),
+            manager.loadCachedSession(),
+        )
+        assertEquals(false, store.providerCleanupPending)
+        assertEquals(2, credentialStateClearer.clearCount)
     }
 
     @Test
@@ -164,7 +176,10 @@ class AuthSessionManagerTest {
             credentialStateClearer = RecordingCredentialStateClearer(),
         )
 
-        assertEquals(LoadAuthSessionResult.SignedOut, emptyManager.loadCachedSession())
+        assertEquals(
+            LoadAuthSessionResult.SignedOut(providerStateCleared = true),
+            emptyManager.loadCachedSession(),
+        )
         assertEquals(LoadAuthSessionResult.PersistenceFailure, failingManager.loadCachedSession())
     }
 
@@ -276,6 +291,86 @@ class AuthSessionManagerTest {
     }
 
     @Test
+    fun cancelledProviderCleanupIsRetriedFromTheDurableMarkerAfterRestart() = runTest {
+        val store = RecordingAuthSessionStore().apply { account = approvedAccount() }
+        val credentialStateClearer = RecordingCredentialStateClearer().apply {
+            clearFailure = CancellationException("test provider cancellation")
+        }
+        val manager = AuthSessionManager(
+            accessPolicy = AccountAccessPolicy(TEST_ALLOWED_GOOGLE_ACCOUNTS),
+            sessionStore = store,
+            credentialStateClearer = credentialStateClearer,
+        )
+
+        try {
+            manager.signOut()
+            fail("Expected provider cleanup cancellation")
+        } catch (_: CancellationException) {
+            // Expected: the durable marker must survive this cancellation.
+        }
+        assertEquals(null, store.account)
+        assertEquals(true, store.providerCleanupPending)
+
+        credentialStateClearer.clearFailure = null
+        val restartResult = manager.loadCachedSession()
+
+        assertEquals(
+            LoadAuthSessionResult.SignedOut(providerStateCleared = true),
+            restartResult,
+        )
+        assertEquals(false, store.providerCleanupPending)
+        assertEquals(2, credentialStateClearer.clearCount)
+    }
+
+    @Test
+    fun cancelledMarkerCompletionRetriesProviderCleanupAfterRestart() = runTest {
+        val store = RecordingAuthSessionStore().apply {
+            account = approvedAccount()
+            completeCleanupFailure = CancellationException("test marker cancellation")
+        }
+        val credentialStateClearer = RecordingCredentialStateClearer()
+        val manager = AuthSessionManager(
+            accessPolicy = AccountAccessPolicy(TEST_ALLOWED_GOOGLE_ACCOUNTS),
+            sessionStore = store,
+            credentialStateClearer = credentialStateClearer,
+        )
+
+        try {
+            manager.signOut()
+            fail("Expected marker completion cancellation")
+        } catch (_: CancellationException) {
+            // Expected: the durable marker must survive this cancellation.
+        }
+        assertEquals(true, store.providerCleanupPending)
+
+        store.completeCleanupFailure = null
+        val restartResult = manager.loadCachedSession()
+
+        assertEquals(
+            LoadAuthSessionResult.SignedOut(providerStateCleared = true),
+            restartResult,
+        )
+        assertEquals(false, store.providerCleanupPending)
+        assertEquals(2, credentialStateClearer.clearCount)
+    }
+
+    @Test
+    fun aNewApprovedSignInSupersedesAnOlderProviderCleanupMarker() = runTest {
+        val store = RecordingAuthSessionStore().apply { providerCleanupPending = true }
+        val manager = AuthSessionManager(
+            accessPolicy = AccountAccessPolicy(TEST_ALLOWED_GOOGLE_ACCOUNTS),
+            sessionStore = store,
+            credentialStateClearer = RecordingCredentialStateClearer(),
+        )
+
+        val result = manager.authorize(approvedAccount())
+
+        assertEquals(AuthorizeAccountResult.Approved(approvedAccount()), result)
+        assertEquals(false, store.providerCleanupPending)
+        assertEquals(approvedAccount(), store.account)
+    }
+
+    @Test
     fun fatalErrorsAreNeverConvertedToAuthFailures() {
         val manager = AuthSessionManager(
             accessPolicy = AccountAccessPolicy(TEST_ALLOWED_GOOGLE_ACCOUNTS),
@@ -312,9 +407,11 @@ private val TEST_ALLOWED_GOOGLE_ACCOUNTS = setOf(TEST_APPROVED_EMAIL)
 
 private class RecordingAuthSessionStore : AuthSessionStore {
     var account: GoogleAccount? = null
+    var providerCleanupPending = false
     var readFailure: Throwable? = null
     var saveFailure: Throwable? = null
     var clearFailure: Throwable? = null
+    var completeCleanupFailure: Throwable? = null
 
     override suspend fun read(): GoogleAccount? {
         readFailure?.let { throw it }
@@ -324,11 +421,26 @@ private class RecordingAuthSessionStore : AuthSessionStore {
     override suspend fun save(account: GoogleAccount) {
         saveFailure?.let { throw it }
         this.account = account
+        providerCleanupPending = false
     }
 
     override suspend fun clear() {
         clearFailure?.let { throw it }
         account = null
+        providerCleanupPending = false
+    }
+
+    override suspend fun beginProviderCleanup() {
+        clearFailure?.let { throw it }
+        account = null
+        providerCleanupPending = true
+    }
+
+    override suspend fun isProviderCleanupPending(): Boolean = providerCleanupPending
+
+    override suspend fun completeProviderCleanup() {
+        completeCleanupFailure?.let { throw it }
+        providerCleanupPending = false
     }
 }
 

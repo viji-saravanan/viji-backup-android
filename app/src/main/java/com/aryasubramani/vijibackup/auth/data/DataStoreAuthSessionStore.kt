@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -22,19 +23,20 @@ class DataStoreAuthSessionStore(
 
         if (subject == null && email == null && displayName == null) return null
 
-        return requireNotNull(
-            GoogleAccount.create(
-                subject = subject.orEmpty(),
-                email = email.orEmpty(),
-                displayName = displayName,
-            ),
-        ) {
-            "Stored auth session is invalid"
-        }
+        val account = GoogleAccount.create(
+            subject = subject.orEmpty(),
+            email = email.orEmpty(),
+            displayName = displayName,
+        )
+        if (account != null) return account
+
+        clearAccountMetadata()
+        return null
     }
 
     override suspend fun save(account: GoogleAccount) {
         dataStore.edit { preferences ->
+            preferences.remove(Keys.providerCleanupPending)
             preferences[Keys.subject] = account.subject
             preferences[Keys.email] = account.email
             if (account.displayName == null) {
@@ -49,10 +51,33 @@ class DataStoreAuthSessionStore(
         dataStore.edit { preferences -> preferences.clear() }
     }
 
+    override suspend fun beginProviderCleanup() {
+        dataStore.edit { preferences ->
+            preferences.clear()
+            preferences[Keys.providerCleanupPending] = true
+        }
+    }
+
+    override suspend fun isProviderCleanupPending(): Boolean =
+        dataStore.data.first()[Keys.providerCleanupPending] == true
+
+    override suspend fun completeProviderCleanup() {
+        dataStore.edit { preferences -> preferences.remove(Keys.providerCleanupPending) }
+    }
+
+    private suspend fun clearAccountMetadata() {
+        dataStore.edit { preferences ->
+            preferences.remove(Keys.subject)
+            preferences.remove(Keys.email)
+            preferences.remove(Keys.displayName)
+        }
+    }
+
     private object Keys {
         val subject = stringPreferencesKey("google_account_subject")
         val email = stringPreferencesKey("google_account_email")
         val displayName = stringPreferencesKey("google_account_display_name")
+        val providerCleanupPending = booleanPreferencesKey("provider_cleanup_pending")
     }
 }
 

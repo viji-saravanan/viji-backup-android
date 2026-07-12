@@ -10,18 +10,23 @@ class AuthSessionManager(
     private val sessionStore: AuthSessionStore,
     private val credentialStateClearer: CredentialStateClearer,
 ) {
-    suspend fun loadCachedSession(): LoadAuthSessionResult =
-        captureFailure { sessionStore.read() }
-            .fold(
-                onSuccess = { account ->
-                    if (account == null) {
-                        LoadAuthSessionResult.SignedOut
-                    } else {
-                        LoadAuthSessionResult.ReauthenticationRequired(account)
-                    }
-                },
-                onFailure = { LoadAuthSessionResult.PersistenceFailure },
-            )
+    suspend fun loadCachedSession(): LoadAuthSessionResult {
+        val cleanupPending = captureFailure { sessionStore.isProviderCleanupPending() }
+            .getOrElse { return LoadAuthSessionResult.PersistenceFailure }
+        val providerStateCleared = if (cleanupPending) {
+            clearProviderStateAndCompleteMarker()
+        } else {
+            true
+        }
+        val account = captureFailure { sessionStore.read() }
+            .getOrElse { return LoadAuthSessionResult.PersistenceFailure }
+
+        return if (account == null) {
+            LoadAuthSessionResult.SignedOut(providerStateCleared)
+        } else {
+            LoadAuthSessionResult.ReauthenticationRequired(account)
+        }
+    }
 
     suspend fun authorize(account: GoogleAccount): AuthorizeAccountResult =
         when (val access = accessPolicy.evaluate(account)) {
@@ -34,8 +39,14 @@ class AuthSessionManager(
             }
 
             is AccountAccess.Blocked -> {
-                val localStateCleared = captureFailure { sessionStore.clear() }.isSuccess
-                val providerStateCleared = captureFailure { credentialStateClearer.clear() }.isSuccess
+                val localStateCleared = captureFailure {
+                    sessionStore.beginProviderCleanup()
+                }.isSuccess
+                val providerStateCleared = if (localStateCleared) {
+                    clearProviderStateAndCompleteMarker()
+                } else {
+                    captureFailure { credentialStateClearer.clear() }.isSuccess
+                }
                 AuthorizeAccountResult.Blocked(
                     account = access.account,
                     localStateCleared = localStateCleared,
@@ -45,13 +56,18 @@ class AuthSessionManager(
         }
 
     suspend fun signOut(): SignOutResult {
-        if (captureFailure { sessionStore.clear() }.isFailure) {
+        if (captureFailure { sessionStore.beginProviderCleanup() }.isFailure) {
             return SignOutResult.PersistenceFailure
         }
 
         return SignOutResult.SignedOut(
-            providerStateCleared = captureFailure { credentialStateClearer.clear() }.isSuccess,
+            providerStateCleared = clearProviderStateAndCompleteMarker(),
         )
+    }
+
+    private suspend fun clearProviderStateAndCompleteMarker(): Boolean {
+        if (captureFailure { credentialStateClearer.clear() }.isFailure) return false
+        return captureFailure { sessionStore.completeProviderCleanup() }.isSuccess
     }
 }
 
@@ -65,7 +81,7 @@ private suspend fun <T> captureFailure(block: suspend () -> T): Result<T> =
     }
 
 sealed interface LoadAuthSessionResult {
-    data object SignedOut : LoadAuthSessionResult
+    data class SignedOut(val providerStateCleared: Boolean) : LoadAuthSessionResult
 
     data class ReauthenticationRequired(val account: GoogleAccount) : LoadAuthSessionResult
 

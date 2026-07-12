@@ -16,6 +16,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -75,7 +76,16 @@ class DataStoreAuthSessionStoreInstrumentedTest {
                 preferences[stringPreferencesKey("google_account_email")] = "primary.user@example.test"
             }
 
-            assertTrue(runCatching { store.read() }.isFailure)
+            assertNull(store.read())
+            assertTrue(dataStore.data.first().asMap().isEmpty())
+
+            store.beginProviderCleanup()
+            assertTrue(store.isProviderCleanupPending())
+
+            store.save(account)
+
+            assertEquals(account, store.read())
+            assertFalse(store.isProviderCleanupPending())
         } finally {
             fixture.close()
             file.delete()
@@ -124,6 +134,40 @@ class DataStoreAuthSessionStoreInstrumentedTest {
             assertTrue(fixture.dataStore.data.first().asMap().isEmpty())
         } finally {
             fixture.close()
+            file.delete()
+        }
+    }
+
+    @Test
+    fun providerCleanupMarkerSurvivesRestartUntilExplicitCompletion() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val file = File(context.cacheDir, "auth-cleanup-${UUID.randomUUID()}.preferences_pb")
+
+        val first = createStoreFixture(file)
+        first.store.save(
+            requireNotNull(
+                GoogleAccount.create(
+                    subject = "cleanup-subject",
+                    email = "cleanup.user@example.test",
+                    displayName = null,
+                ),
+            ),
+        )
+        first.store.beginProviderCleanup()
+        assertNull(first.store.read())
+        assertTrue(first.store.isProviderCleanupPending())
+        first.close()
+
+        val second = createStoreFixture(file)
+        try {
+            assertNull(second.store.read())
+            assertTrue(second.store.isProviderCleanupPending())
+
+            second.store.completeProviderCleanup()
+
+            assertTrue(second.dataStore.data.first().asMap().isEmpty())
+        } finally {
+            second.close()
             file.delete()
         }
     }

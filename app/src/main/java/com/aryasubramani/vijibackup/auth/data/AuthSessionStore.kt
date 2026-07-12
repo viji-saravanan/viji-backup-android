@@ -8,4 +8,12 @@ interface AuthSessionStore {
     suspend fun save(account: GoogleAccount)
 
     suspend fun clear()
+
+    suspend fun beginProviderCleanup() {
+        clear()
+    }
+
+    suspend fun isProviderCleanupPending(): Boolean = false
+
+    suspend fun completeProviderCleanup() = Unit
 }
