@@ -14,10 +14,16 @@ class AppContextInstrumentedTest {
     @Test
     fun appContextUsesVijiBackupIdentity() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
+        val expectedPackage = when (BuildConfig.FLAVOR) {
+            "internal" -> "com.aryasubramani.vijibackup.internal"
+            "public" -> "com.aryasubramani.vijibackup"
+            else -> error("Unexpected distribution flavor")
+        }
 
-        assertTrue(appContext.packageName.startsWith("com.aryasubramani.vijibackup"))
+        assertEquals(expectedPackage, appContext.packageName)
+        assertEquals(expectedPackage, BuildConfig.APPLICATION_ID)
         assertEquals("Viji Backup", appContext.getString(R.string.app_name))
-        assertTrue(setOf("internal", "public").contains(appContext.getString(R.string.app_channel)))
+        assertEquals(BuildConfig.FLAVOR, appContext.getString(R.string.app_channel))
     }
 
     @Test

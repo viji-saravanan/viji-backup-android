@@ -3,63 +3,76 @@ package com.aryasubramani.vijibackup.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
-import com.aryasubramani.vijibackup.R
-import com.aryasubramani.vijibackup.core.AppIdentity
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import com.aryasubramani.vijibackup.auth.presentation.AuthUiState
+import com.aryasubramani.vijibackup.auth.presentation.AuthViewModel
 
 class MainActivity : ComponentActivity() {
+    private val appContainer: AppContainer
+        get() = (application as VijiBackupApplication).appContainer
+
+    private val authViewModel by viewModels<AuthViewModel> {
+        AuthViewModel.Factory(
+            sessionManager = appContainer.authSessionManager,
+            isGoogleSignInConfigured = appContainer.isGoogleSignInConfigured,
+        )
+    }
+    private val credentialRequestDispatcher by lazy(LazyThreadSafetyMode.NONE) {
+        AuthCredentialRequestDispatcher(
+            coroutineScope = lifecycleScope,
+            signIn = { mode ->
+                appContainer.googleSignInClient.signIn(
+                    activityContext = this@MainActivity,
+                    mode = mode,
+                )
+            },
+            onResult = authViewModel::onSignInResult,
+            onInterrupted = authViewModel::onSignInInterrupted,
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
-            VijiBackupApp()
-        }
-    }
-}
+            val uiState by authViewModel.uiState.collectAsStateWithLifecycle()
+            val signInRequest = (uiState as? AuthUiState.SigningIn)?.request
 
-@Composable
-fun VijiBackupApp() {
-    MaterialTheme {
-        Surface(
-            modifier = Modifier.fillMaxSize(),
-            color = MaterialTheme.colorScheme.background,
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text(
-                    text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    text = AppIdentity.phaseLabel,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            LaunchedEffect(uiState) {
+                if (uiState is AuthUiState.ReauthenticationRequired) {
+                    authViewModel.startAutomaticReauthentication()
+                }
             }
+            LaunchedEffect(signInRequest?.id) {
+                val request = signInRequest ?: return@LaunchedEffect
+                val mode = authViewModel.consumeSignInRequest(request.id)
+                    ?: return@LaunchedEffect
+                credentialRequestDispatcher.dispatch(request.id, mode)
+            }
+
+            VijiBackupApp(
+                uiState = uiState,
+                onSignIn = authViewModel::signIn,
+                onRetry = authViewModel::retry,
+                onSignOut = authViewModel::signOut,
+            )
         }
     }
-}
 
-@Preview(showBackground = true)
-@Composable
-private fun VijiBackupAppPreview() {
-    VijiBackupApp()
+    override fun onStart() {
+        super.onStart()
+        authViewModel.onAppForegrounded()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) {
+            authViewModel.onAppBackgrounded()
+        }
+    }
 }
