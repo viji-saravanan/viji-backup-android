@@ -1,11 +1,12 @@
 ---
 doc_id: drive-backup-app-phase-2-auth-implementation-plan
 status: active
-last_updated: 2026-07-10
+last_updated: 2026-07-12
 context_role: implementation-plan
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
 execution: code
+execution_status: implemented-reviewing
 read_when:
   - The agent implements, reviews, or tests Phase 2 authentication and account gating.
   - The agent changes Google sign-in, local auth-session state, the allowlist, or sign-out.
@@ -29,27 +30,27 @@ narrowest viable Drive scope.
 ## Confirmed Inputs
 
 Four accounts are approved: two project-owner identities and two primary-user
-identities. Actual addresses are supplied through ignored local configuration or
-encrypted CI values and must never appear in tracked plans, source, or tests.
+identities. Actual addresses are supplied through ignored local configuration
+and must never appear in tracked plans, source, tests, or source CI. A future
+private release job may use protected values only under the release rules.
 
 Existing Android OAuth client IDs remain mapped to the internal and public
 Android application IDs. They are not the Web application client ID required by
 Credential Manager's Sign in with Google request.
 
-## KTD-1: Web OAuth Client Prerequisite
+## KTD-1: Web OAuth Client Prerequisite - Resolved
 
 Credential Manager requires a Web application OAuth client ID as its server
-client ID. That value has not been supplied yet.
+client ID. That value is now supplied through ignored private configuration and
+was proven by a live Google chooser on the Samsung baseline. The value remains
+excluded from source, docs, logs, and PR evidence.
 
-Implementation behavior while it is missing:
+Behavior when it is missing remains part of the contract:
 
 - builds and automated tests remain deterministic;
 - the app shows an explicit configuration-required state;
 - the app never substitutes either Android OAuth client ID;
-- no live Google account flow is claimed as verified.
-
-Live sign-in verification is blocked until Arya creates the Web application
-client in the same Google Cloud project and supplies its non-secret client ID.
+- no credential UI is launched.
 
 ## Architecture Decisions
 
@@ -112,7 +113,7 @@ The presentation layer exposes these observable states:
 | `SigningIn` | A Credential Manager flow is active. | Wait; duplicate launches are ignored |
 | `Approved` | Current Google account is on the allowlist. | Enter app surface or sign out |
 | `Blocked` | Current Google account is not on the allowlist. | Choose another account |
-| `Error` | A recoverable or permanent auth operation failed. | Retry or return to signed-out state as classified |
+| `Error` | A recoverable auth operation failed. | Retry the classified operation |
 | `SigningOut` | Local and provider state are being cleared. | Wait; duplicate sign-out is ignored |
 
 Raw exception messages must never be shown. Platform failures map to stable,
@@ -133,6 +134,8 @@ user-safe error categories.
 - A DataStore clear failure must not claim sign-out succeeded.
 - If provider-state clearing fails after local state was cleared, local sign-out
   still succeeds and the UI reports a non-sensitive warning.
+- Local account removal and the provider-cleanup-pending marker are written
+  atomically. Cancellation or process death retries provider cleanup on startup.
 - Lifecycle interruption must not leave the UI permanently in `SigningIn`.
 - Duplicate sign-in or sign-out taps must not launch concurrent operations.
 
@@ -162,7 +165,7 @@ user-safe error categories.
 
 ### Manual Device Proof
 
-Run after KTD-1 is resolved:
+Run on the configured Samsung baseline and repeat release-only cases before APK distribution:
 
 - use the Samsung Galaxy A23 physical baseline and record Android, One UI,
   security patch, and Google Play services versions without its serial;
@@ -180,14 +183,19 @@ Run after KTD-1 is resolved:
 - rotation or process recreation during sign-in does not leave a stuck state;
 - `adb logcat` contains no ID token or raw credential payload.
 
-Completed before KTD-1 on 2026-07-11:
+Evidence current on 2026-07-12:
 
-- internal and public flavors each passed 6 instrumented tests on Android 14;
-- DataStore corruption recovery, recreation, clear persistence, package identity,
-  and missing-Web-client failure behavior passed;
-- both variants installed and launched side by side;
-- process logs contained no fatal, token-shaped, or email-shaped entries;
-- live account chooser and approval/block decisions remain untested.
+- internal and public flavors each passed 28 instrumented tests on Android 14;
+- each flavor passed 59 JVM tests plus assemble, Android-test APK, and lint tasks;
+- DataStore corruption and partial-state recovery, recreation, clear persistence,
+  app-container wiring, package identity, and missing-Web-client behavior passed;
+- both variants install and launch side by side;
+- redacted internal live cases proved A1-A4 approved, B1 blocked, cancellation,
+  cached-session reauthentication, and sign-out;
+- the user independently reported the configured live flow working;
+- an A1 process-log scan found no fatal, raw-email, JWT-shaped, or OAuth-ID-shaped matches;
+- public-flavor live sign-in, physical account removal, unavailable Play services,
+  airplane mode, and rotation during provider UI remain explicit release tests.
 
 ## Implementation Units
 
@@ -201,7 +209,7 @@ Files:
 
 - `gradle/libs.versions.toml`
 - `app/build.gradle.kts`
-- `app/src/main/java/com/aryasubramani/vijibackup/core/CloudConfiguration.kt`
+- `app/src/main/java/com/aryasubramani/vijibackup/auth/config/`
 - matching configuration tests
 
 Verification: both debug variants compile and missing configuration is tested.
@@ -277,10 +285,12 @@ Files:
 - `README.md`
 - `drive backup KB/Drive Backup App Project State.md`
 - `drive backup KB/Drive Backup App Index.md`
-- reviewer handoff document
+- `drive backup KB/Drive Backup App Fresh Laptop Setup And Test Runbook.md`
+- zero-secret GitHub source verification workflow
 
 Verification: KB links resolve, no outdated Phase 1-only status remains, and the
-handoff identifies KTD-1 plus manual tests still outstanding.
+handoff identifies debug-SHA registration, private setup, branch base, and manual
+tests still outstanding without assuming Arya's laptop paths.
 
 ## Scope Boundaries
 

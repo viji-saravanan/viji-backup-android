@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-security-privacy-access
 status: active
-last_updated: 2026-07-10
+last_updated: 2026-07-12
 context_role: security-privacy
 read_when:
   - The agent touches auth, Drive sharing, tokens, email, encryption, or privacy.
@@ -45,9 +45,22 @@ Prefer the narrowest Drive scope that supports the final implementation. Start b
 
 ## Allowlist
 
-MVP currently accepts an allowlist supplied at build time from ignored local configuration or encrypted CI values. A clean checkout has an empty allowlist and therefore denies every account.
+MVP currently accepts an allowlist supplied at build time from ignored local
+configuration. Source CI deliberately receives no allowlist. A clean checkout
+has an empty allowlist and therefore denies every account.
 
 Removing addresses from Git does not hide plaintext addresses embedded in a distributed APK. Before publishing an APK containing the production gate, replace plaintext email matching with opaque Google subject identifiers, a server-side decision, or Drive-ACL authorization. Drive permissions remain the authoritative data boundary because a modified client can bypass any bundled check.
+
+The build currently enforces this boundary by failing `publicRelease` when an
+email allowlist or Drive folder ID is configured. `publicDebug` remains useful
+for private flavor/OAuth testing but is not a distributable public artifact.
+
+Phase 2 persists the stable Google subject with normalized email metadata but
+evaluates the local product gate by email because only addresses are configured.
+Address reassignment is therefore a tracked identity-transfer risk. Cached
+metadata never unlocks the app by itself, and an approved process relocks when
+the app backgrounds. Future Drive work must still recheck current authorization
+before every protected operation.
 
 Future version can support a remotely fetched allowlist only if:
 
@@ -58,7 +71,9 @@ Future version can support a remotely fetched allowlist only if:
 
 ## Token Storage
 
-- Store tokens using Android-recommended secure storage.
+- Do not manually persist raw ID, access, or refresh tokens. If a future adapter
+  introduces app-owned secret material, use Android-recommended secure storage
+  and document its lifecycle first.
 - Do not log tokens.
 - Do not include tokens in diagnostics export.
 - Wipe local auth state on sign-out.

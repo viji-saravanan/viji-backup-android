@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-foundation-decisions
 status: active
-last_updated: 2026-07-08
+last_updated: 2026-07-12
 context_role: foundation-decisions
 read_when:
   - The agent needs the confirmed app identity, build variants, UI stack, or Phase 1A decisions.
@@ -41,7 +41,8 @@ These are still the chosen direction, but they should be added in the phase wher
 
 - Hilt for dependency injection.
 - Room for sync ledger and history.
-- DataStore for settings.
+- DataStore for settings. Phase 2 already uses Preferences DataStore for the
+  narrow auth-session metadata store; the settings repository remains deferred.
 - WorkManager for durable background sync.
 
 Reason: adding unused infrastructure in Phase 1 increases build and test surface without proving behavior. Each library should enter with its own negative tests and blast-radius check.
@@ -53,23 +54,29 @@ Reason: adding unused infrastructure in Phase 1 increases build and test surface
 ./gradlew :app:testInternalDebugUnitTest
 ./gradlew :app:assemblePublicDebug
 ./gradlew :app:testPublicDebugUnitTest
+./gradlew :app:lintInternalDebug
+./gradlew :app:lintPublicDebug
 ```
 
 Instrumented checks require an emulator or physical device:
 
 ```bash
 ./gradlew :app:connectedInternalDebugAndroidTest
+./gradlew :app:connectedPublicDebugAndroidTest
 ```
 
 ## SDK Constraint
 
-The local Android SDK currently has `android-36.1` installed. `androidx.core:core-ktx:1.19.0` requires compile SDK 37, so Phase 1 pins Core KTX to `1.18.0` until Android API 37 is installed and verified deliberately.
+The local Android SDK currently has `android-36.1` installed.
+`androidx.core:core-ktx:1.19.0` requires compile SDK 37, so the tested baseline
+pins Core KTX to `1.18.0` until Android API 37 is installed and verified deliberately.
 
-Current lint warnings after scaffold setup are expected platform/tool freshness warnings:
+Current lint reports seven expected platform/tool freshness warnings:
 
 - target SDK 36 while a newer target is available;
 - compile SDK 36.1 while compile SDK 37 is available;
 - Core KTX 1.18.0 while 1.19.0 requires compile SDK 37;
+- Lifecycle Compose 2.10.0 while 2.11.0 is available (reported for two artifacts);
 - Gradle wrapper 9.4.1 while a newer wrapper is available;
 - Compose compiler 2.3.21 while a newer stable plugin is available.
 
