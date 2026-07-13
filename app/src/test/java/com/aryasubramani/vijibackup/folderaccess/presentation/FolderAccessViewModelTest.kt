@@ -134,9 +134,13 @@ class FolderAccessViewModelTest {
 
         viewModel.removeFolder("mapping-a")
         viewModel.removeFolder("mapping-b")
+        viewModel.addFolder()
+        viewModel.repairFolder("mapping-c")
         runCurrent()
 
         assertEquals(listOf("mapping-a"), repository.removeCalls)
+        assertEquals(0, repository.beginAddCalls)
+        assertTrue(repository.repairCalls.isEmpty())
         assertEquals("mapping-a", viewModel.uiState.value.removingMappingId)
 
         removeGate.complete(Unit)
@@ -144,6 +148,72 @@ class FolderAccessViewModelTest {
 
         assertNull(viewModel.uiState.value.removingMappingId)
         assertEquals(FolderAccessNotice.FolderRemoved, viewModel.uiState.value.notice)
+    }
+
+    @Test
+    fun everyRemoveOutcomeHasAnExplicitNoticeAndClearsProgress() = runTest {
+        val repository = FakeFolderMappingRepository()
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        runCurrent()
+        val cases = listOf(
+            RemoveFolderResult.MappingNotFound to FolderAccessNotice.MappingMissing,
+            RemoveFolderResult.Busy to FolderAccessNotice.PickerBusy,
+            RemoveFolderResult.GrantFailure to FolderAccessNotice.RemovalGrantFailure,
+            RemoveFolderResult.StorageFailure to FolderAccessNotice.StorageFailure,
+        )
+
+        cases.forEachIndexed { index, (result, expectedNotice) ->
+            repository.removeResult = result
+
+            viewModel.removeFolder("mapping-$index")
+            advanceUntilIdle()
+
+            assertNull(viewModel.uiState.value.removingMappingId)
+            assertEquals(expectedNotice, viewModel.uiState.value.notice)
+        }
+        assertEquals(cases.indices.map { "mapping-$it" }, repository.removeCalls)
+    }
+
+    @Test
+    fun removeExceptionBecomesNonSensitiveStorageNotice() = runTest {
+        val repository = FakeFolderMappingRepository().apply {
+            removeFailure = IllegalStateException("sensitive provider detail")
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        runCurrent()
+
+        viewModel.removeFolder("mapping-a")
+        advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.removingMappingId)
+        assertEquals(FolderAccessNotice.StorageFailure, viewModel.uiState.value.notice)
+    }
+
+    @Test
+    fun deactivationCancelsRemovalClearsProgressAndBlocksFurtherRemoval() = runTest {
+        val removeGate = CompletableDeferred<Unit>()
+        val repository = FakeFolderMappingRepository().apply {
+            removeResult = RemoveFolderResult.Removed
+            this.removeGate = removeGate
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        runCurrent()
+
+        viewModel.removeFolder("mapping-a")
+        runCurrent()
+        assertEquals("mapping-a", viewModel.uiState.value.removingMappingId)
+
+        viewModel.deactivate()
+        advanceUntilIdle()
+        viewModel.removeFolder("mapping-b")
+        advanceUntilIdle()
+
+        assertNull(viewModel.uiState.value.removingMappingId)
+        assertNull(viewModel.uiState.value.notice)
+        assertEquals(listOf("mapping-a"), repository.removeCalls)
     }
 
     @Test
@@ -215,11 +285,13 @@ class FolderAccessViewModelTest {
 
         viewModel.addFolder()
         viewModel.repairFolder("mapping-a")
+        viewModel.removeFolder("mapping-a")
         advanceUntilIdle()
 
         assertEquals(0, repository.observeCalls)
         assertEquals(0, repository.beginAddCalls)
         assertTrue(repository.repairCalls.isEmpty())
+        assertTrue(repository.removeCalls.isEmpty())
     }
 
     @Test
@@ -235,9 +307,11 @@ class FolderAccessViewModelTest {
         viewModel.deactivate()
         repository.beginAddResult = BeginFolderPickerResult.StorageFailure
         viewModel.addFolder()
+        viewModel.removeFolder("mapping-a")
         advanceUntilIdle()
 
         assertEquals(0, repository.beginAddCalls)
+        assertTrue(repository.removeCalls.isEmpty())
     }
 }
 
