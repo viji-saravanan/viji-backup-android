@@ -34,6 +34,7 @@
     <string name="folder_access_fallback_name">Folder %1$d</string>
     <string name="folder_access_included">Included</string>
     <string name="folder_access_paused">Paused</string>
+    <string name="folder_access_removing">Removing</string>
     <string name="folder_access_repair">Repair</string>
     <string name="folder_access_remove">Remove</string>
     <string name="folder_access_remove_dialog_title">Remove %1$s?</string>

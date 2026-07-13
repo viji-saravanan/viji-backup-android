@@ -10,12 +10,18 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -35,6 +41,9 @@ internal fun FolderAccessContent(
     onRepairFolder: (String) -> Unit,
     onRemoveFolder: (String) -> Unit = {},
 ) {
+    var pendingRemovalId by rememberSaveable { mutableStateOf<String?>(null) }
+    val actionsEnabled = !uiState.isLoading && uiState.removingMappingId == null
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -54,7 +63,7 @@ internal fun FolderAccessContent(
             )
             Button(
                 onClick = onAddFolder,
-                enabled = !uiState.isLoading,
+                enabled = actionsEnabled,
                 modifier = Modifier
                     .heightIn(min = 48.dp)
                     .testTag(FolderAccessTestTags.AddButton),
@@ -96,61 +105,143 @@ internal fun FolderAccessContent(
             else -> Column(modifier = Modifier.fillMaxWidth()) {
                 uiState.mappings.forEachIndexed { index, mapping ->
                     if (index > 0) HorizontalDivider()
+                    val displayName = mapping.displayName
+                        ?: stringResource(R.string.folder_access_fallback_name, index + 1)
                     FolderMappingRow(
                         mapping = mapping,
-                        fallbackIndex = index + 1,
+                        displayName = displayName,
+                        isRemoving = uiState.removingMappingId == mapping.id,
+                        actionsEnabled = actionsEnabled,
                         onRepair = { onRepairFolder(mapping.id) },
+                        onRemove = { pendingRemovalId = mapping.id },
                     )
                 }
             }
         }
+    }
+
+    val pendingRemovalIndex = uiState.mappings.indexOfFirst { mapping ->
+        mapping.id == pendingRemovalId
+    }
+    if (pendingRemovalIndex >= 0) {
+        val pendingRemoval = uiState.mappings[pendingRemovalIndex]
+        val displayName = pendingRemoval.displayName
+            ?: stringResource(
+                R.string.folder_access_fallback_name,
+                pendingRemovalIndex + 1,
+            )
+        AlertDialog(
+            onDismissRequest = { pendingRemovalId = null },
+            modifier = Modifier.testTag(FolderAccessTestTags.RemoveDialog),
+            title = {
+                Text(
+                    stringResource(
+                        R.string.folder_access_remove_dialog_title,
+                        displayName,
+                    ),
+                )
+            },
+            text = {
+                Text(stringResource(R.string.folder_access_remove_dialog_message))
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingRemovalId = null
+                        onRemoveFolder(pendingRemoval.id)
+                    },
+                    enabled = actionsEnabled,
+                    modifier = Modifier.testTag(FolderAccessTestTags.ConfirmRemove),
+                ) {
+                    Text(stringResource(R.string.folder_access_remove_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingRemovalId = null },
+                    modifier = Modifier.testTag(FolderAccessTestTags.CancelRemove),
+                ) {
+                    Text(stringResource(R.string.folder_access_remove_cancel))
+                }
+            },
+        )
     }
 }
 
 @Composable
 private fun FolderMappingRow(
     mapping: FolderMapping,
-    fallbackIndex: Int,
+    displayName: String,
+    isRemoving: Boolean,
+    actionsEnabled: Boolean,
     onRepair: () -> Unit,
+    onRemove: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 72.dp)
+            .heightIn(min = 128.dp)
             .padding(vertical = 12.dp)
             .testTag(FolderAccessTestTags.MappingRow),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        Text(
+            text = displayName,
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+        )
+        Row(
+            modifier = Modifier.heightIn(min = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (isRemoving) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                )
+            }
             Text(
-                text = mapping.displayName
-                    ?: stringResource(R.string.folder_access_fallback_name, fallbackIndex),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = stringResource(
-                    if (mapping.enabled) {
-                        R.string.folder_access_included
-                    } else {
-                        R.string.folder_access_paused
-                    },
-                ),
+                text = if (isRemoving) {
+                    stringResource(R.string.folder_access_removing)
+                } else {
+                    stringResource(
+                        if (mapping.enabled) {
+                            R.string.folder_access_included
+                        } else {
+                            R.string.folder_access_paused
+                        },
+                    )
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        OutlinedButton(
-            onClick = onRepair,
-            modifier = Modifier
-                .heightIn(min = 48.dp)
-                .testTag(FolderAccessTestTags.repairButton(mapping.id)),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(
+                space = 8.dp,
+                alignment = Alignment.End,
+            ),
         ) {
-            Text(stringResource(R.string.folder_access_repair))
+            OutlinedButton(
+                onClick = onRepair,
+                enabled = actionsEnabled,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag(FolderAccessTestTags.repairButton(mapping.id)),
+            ) {
+                Text(stringResource(R.string.folder_access_repair))
+            }
+            OutlinedButton(
+                onClick = onRemove,
+                enabled = actionsEnabled,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag(FolderAccessTestTags.removeButton(mapping.id)),
+            ) {
+                Text(stringResource(R.string.folder_access_remove))
+            }
         }
     }
 }

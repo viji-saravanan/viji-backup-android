@@ -111,6 +111,7 @@ class MainActivity : ComponentActivity() {
                 onSignOut = authViewModel::signOut,
                 onAddFolder = folderAccessViewModel::addFolder,
                 onRepairFolder = folderAccessViewModel::repairFolder,
+                onRemoveFolder = folderAccessViewModel::removeFolder,
             )
         }
     }

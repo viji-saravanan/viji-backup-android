@@ -43,6 +43,7 @@ fun VijiBackupApp(
     onSignOut: () -> Unit,
     onAddFolder: () -> Unit = {},
     onRepairFolder: (String) -> Unit = {},
+    onRemoveFolder: (String) -> Unit = {},
 ) {
     VijiBackupTheme {
         Surface(
@@ -80,6 +81,7 @@ fun VijiBackupApp(
                             onSignOut = onSignOut,
                             onAddFolder = onAddFolder,
                             onRepairFolder = onRepairFolder,
+                            onRemoveFolder = onRemoveFolder,
                         )
                     } else {
                         AuthGateContent(
@@ -101,6 +103,7 @@ private fun ApprovedContent(
     onSignOut: () -> Unit,
     onAddFolder: () -> Unit,
     onRepairFolder: (String) -> Unit,
+    onRemoveFolder: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -124,6 +127,7 @@ private fun ApprovedContent(
             uiState = folderAccessUiState,
             onAddFolder = onAddFolder,
             onRepairFolder = onRepairFolder,
+            onRemoveFolder = onRemoveFolder,
         )
     }
 }
