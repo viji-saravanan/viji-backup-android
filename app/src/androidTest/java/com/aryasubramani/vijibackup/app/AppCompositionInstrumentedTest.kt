@@ -102,7 +102,7 @@ class AppCompositionInstrumentedTest {
     }
 
     @Test
-    fun mainActivityDispatchesOnceRelocksAfterBackgroundAndSurvivesRecreation() {
+    fun mainActivityKeepsCurrentProcessApprovedAcrossBackgroundAndRecreation() {
         val application = ApplicationProvider.getApplicationContext<VijiBackupApplication>()
         val account = approvedAccount()
         val sessionStore = InMemoryAuthSessionStore()
@@ -143,20 +143,16 @@ class AppCompositionInstrumentedTest {
 
                 composeRule.onNodeWithTag(VijiBackupTestTags.ProtectedContent)
                     .assertIsDisplayed()
-                assertEquals(
-                    listOf(
-                        GoogleSignInMode.Explicit,
-                        GoogleSignInMode.AuthorizedAccounts,
-                    ),
-                    signInModes,
-                )
+                assertEquals(listOf(GoogleSignInMode.Explicit), signInModes)
+                assertEquals(1, folderRepository.observeCalls)
 
                 scenario.recreate()
                 composeRule.waitForIdle()
 
                 composeRule.onNodeWithTag(VijiBackupTestTags.ProtectedContent)
                     .assertIsDisplayed()
-                assertEquals(2, signInModes.size)
+                assertEquals(listOf(GoogleSignInMode.Explicit), signInModes)
+                assertEquals(1, folderRepository.observeCalls)
             }
         } finally {
             application.testAppContainer = null
