@@ -30,7 +30,7 @@ import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
 import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessTestTags
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -161,11 +161,12 @@ class AppCompositionInstrumentedTest {
 }
 
 private class EmptyFolderMappingRepository : FolderMappingRepository {
+    private val mappings = MutableStateFlow(emptyList<FolderMapping>())
     var observeCalls = 0
 
     override fun observeMappings(): Flow<List<FolderMapping>> {
         observeCalls += 1
-        return flowOf(emptyList())
+        return mappings
     }
 
     override suspend fun beginAdd(): BeginFolderPickerResult =

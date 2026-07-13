@@ -127,7 +127,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         if (!isChangingConfigurations) {
-            folderAccessViewModel.deactivate()
             authViewModel.onAppBackgrounded()
         }
         super.onStop()
