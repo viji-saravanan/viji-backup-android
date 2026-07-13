@@ -20,6 +20,7 @@ class LiveFolderAccessStateProbeInstrumentedTest {
         if (!arguments.getString(ARG_ENABLED).toBoolean()) return
 
         val expectedMappings = arguments.requiredInt(ARG_EXPECTED_MAPPINGS)
+        val expectedNamedMappings = arguments.optionalInt(ARG_EXPECTED_NAMED_MAPPINGS)
         val expectedTreeGrants = arguments.requiredInt(ARG_EXPECTED_TREE_GRANTS)
         val expectedWriteGrants = arguments.requiredInt(ARG_EXPECTED_WRITE_GRANTS)
         val expectedPendingState = arguments.requiredString(ARG_EXPECTED_PENDING_STATE)
@@ -32,7 +33,17 @@ class LiveFolderAccessStateProbeInstrumentedTest {
 
         try {
             runBlocking {
-                assertEquals(expectedMappings, database.folderAccessDao().allMappings().size)
+                val mappings = database.folderAccessDao().allMappings()
+                assertEquals(expectedMappings, mappings.size)
+                expectedNamedMappings?.let { expected ->
+                    assertEquals(
+                        "named mappings",
+                        expected,
+                        mappings.count { mapping ->
+                            !mapping.sourceDisplayName.isNullOrBlank()
+                        },
+                    )
+                }
                 assertEquals(
                     expectedPendingState,
                     database.folderAccessDao().pendingOperation()?.state?.name ?: NO_PENDING,
@@ -55,9 +66,13 @@ class LiveFolderAccessStateProbeInstrumentedTest {
             require(value.isNotBlank())
         }
 
+    private fun android.os.Bundle.optionalInt(key: String): Int? =
+        getString(key)?.toInt()
+
     private companion object {
         const val ARG_ENABLED = "live_probe_enabled"
         const val ARG_EXPECTED_MAPPINGS = "expected_mappings"
+        const val ARG_EXPECTED_NAMED_MAPPINGS = "expected_named_mappings"
         const val ARG_EXPECTED_TREE_GRANTS = "expected_tree_grants"
         const val ARG_EXPECTED_WRITE_GRANTS = "expected_write_grants"
         const val ARG_EXPECTED_PENDING_STATE = "expected_pending_state"
