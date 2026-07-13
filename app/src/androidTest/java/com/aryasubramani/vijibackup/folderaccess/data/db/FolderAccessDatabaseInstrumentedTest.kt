@@ -88,6 +88,47 @@ class FolderAccessDatabaseInstrumentedTest {
         assertEquals(second, database.folderAccessDao().pendingOperation())
     }
 
+    @Test
+    fun selectionTransitionRequiresTheCurrentRequestedTokenExactlyOnce() = runTest {
+        val operation = pendingOperation(
+            requestToken = "request-a",
+            operation = PendingFolderOperationType.Add,
+        )
+        val selectedTreeUri = "content://provider.test/tree/selected"
+        assertTrue(database.folderAccessDao().tryBeginPendingOperation(operation))
+
+        assertEquals(
+            0,
+            database.folderAccessDao().markSelectionReceived(
+                requestToken = "stale-token",
+                selectedTreeUri = selectedTreeUri,
+            ),
+        )
+        assertEquals(operation, database.folderAccessDao().pendingOperation())
+
+        assertEquals(
+            1,
+            database.folderAccessDao().markSelectionReceived(
+                requestToken = operation.requestToken,
+                selectedTreeUri = selectedTreeUri,
+            ),
+        )
+        assertEquals(
+            operation.copy(
+                selectedTreeUri = selectedTreeUri,
+                state = PendingFolderOperationState.SelectionReceived,
+            ),
+            database.folderAccessDao().pendingOperation(),
+        )
+        assertEquals(
+            0,
+            database.folderAccessDao().markSelectionReceived(
+                requestToken = operation.requestToken,
+                selectedTreeUri = "content://provider.test/tree/replayed",
+            ),
+        )
+    }
+
     private fun openDatabase(): VijiBackupDatabase =
         Room.databaseBuilder(
             context,
