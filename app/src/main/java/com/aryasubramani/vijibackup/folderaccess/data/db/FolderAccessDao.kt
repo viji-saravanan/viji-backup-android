@@ -46,6 +46,20 @@ abstract class FolderAccessDao {
 
     @Query(
         """
+        UPDATE pending_folder_operations
+        SET selected_tree_uri = :selectedTreeUri, state = 'SELECTION_RECEIVED'
+        WHERE slot = 1
+          AND request_token = :requestToken
+          AND state = 'REQUESTED'
+        """,
+    )
+    abstract suspend fun markSelectionReceived(
+        requestToken: String,
+        selectedTreeUri: String,
+    ): Int
+
+    @Query(
+        """
         DELETE FROM pending_folder_operations
         WHERE slot = 1 AND request_token = :requestToken
         """,
