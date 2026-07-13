@@ -30,14 +30,19 @@ import com.aryasubramani.vijibackup.auth.presentation.AuthGateContent
 import com.aryasubramani.vijibackup.auth.presentation.AuthStatusContent
 import com.aryasubramani.vijibackup.auth.presentation.AuthTestTags
 import com.aryasubramani.vijibackup.auth.presentation.AuthUiState
+import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessContent
+import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessUiState
 import com.aryasubramani.vijibackup.ui.theme.VijiBackupTheme
 
 @Composable
 fun VijiBackupApp(
     uiState: AuthUiState,
+    folderAccessUiState: FolderAccessUiState = FolderAccessUiState(),
     onSignIn: () -> Unit,
     onRetry: () -> Unit,
     onSignOut: () -> Unit,
+    onAddFolder: () -> Unit = {},
+    onRepairFolder: (String) -> Unit = {},
 ) {
     VijiBackupTheme {
         Surface(
@@ -69,7 +74,13 @@ fun VijiBackupApp(
                     Spacer(Modifier.height(32.dp))
 
                     if (uiState is AuthUiState.Approved) {
-                        ApprovedContent(uiState = uiState, onSignOut = onSignOut)
+                        ApprovedContent(
+                            uiState = uiState,
+                            folderAccessUiState = folderAccessUiState,
+                            onSignOut = onSignOut,
+                            onAddFolder = onAddFolder,
+                            onRepairFolder = onRepairFolder,
+                        )
                     } else {
                         AuthGateContent(
                             uiState = uiState,
@@ -86,7 +97,10 @@ fun VijiBackupApp(
 @Composable
 private fun ApprovedContent(
     uiState: AuthUiState.Approved,
+    folderAccessUiState: FolderAccessUiState,
     onSignOut: () -> Unit,
+    onAddFolder: () -> Unit,
+    onRepairFolder: (String) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -104,6 +118,12 @@ private fun ApprovedContent(
             actionTag = AuthTestTags.SignOutButton,
             onAction = onSignOut,
             outlinedAction = true,
+        )
+        Spacer(Modifier.height(32.dp))
+        FolderAccessContent(
+            uiState = folderAccessUiState,
+            onAddFolder = onAddFolder,
+            onRepairFolder = onRepairFolder,
         )
     }
 }
