@@ -8,6 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.xmlpull.v1.XmlPullParser
 
 @RunWith(AndroidJUnit4::class)
 class AppContextInstrumentedTest {
@@ -31,5 +32,31 @@ class AppContextInstrumentedTest {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
 
         assertFalse((appContext.applicationInfo.flags and ApplicationInfo.FLAG_ALLOW_BACKUP) != 0)
+    }
+
+    @Test
+    fun folderAccessDatabaseIsExcludedFromEveryBackupTransport() {
+        assertEquals(1, databaseExclusionCount(R.xml.backup_rules))
+        assertEquals(2, databaseExclusionCount(R.xml.data_extraction_rules))
+    }
+
+    private fun databaseExclusionCount(resourceId: Int): Int {
+        val appContext = InstrumentationRegistry.getInstrumentation().targetContext
+        return appContext.resources.getXml(resourceId).use { parser ->
+            var count = 0
+            var event = parser.eventType
+            while (event != XmlPullParser.END_DOCUMENT) {
+                if (
+                    event == XmlPullParser.START_TAG &&
+                    parser.name == "exclude" &&
+                    parser.getAttributeValue(null, "domain") == "database" &&
+                    parser.getAttributeValue(null, "path") == "."
+                ) {
+                    count += 1
+                }
+                event = parser.next()
+            }
+            count
+        }
     }
 }
