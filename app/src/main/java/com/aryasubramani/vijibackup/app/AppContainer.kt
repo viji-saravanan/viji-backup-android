@@ -16,6 +16,7 @@ import com.aryasubramani.vijibackup.folderaccess.data.RoomFolderMappingRepositor
 import com.aryasubramani.vijibackup.folderaccess.data.db.VijiBackupDatabase
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderGrantManager
+import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderMetadataReader
 
 interface AppContainer {
     val authSessionManager: AuthSessionManager
@@ -63,6 +64,9 @@ internal class DefaultAppContainer(context: Context) : AppContainer {
         RoomFolderMappingRepository(
             dao = folderAccessDatabase.folderAccessDao(),
             grantManager = ContentResolverLocalFolderGrantManager(
+                contentResolver = applicationContext.contentResolver,
+            ),
+            metadataReader = ContentResolverLocalFolderMetadataReader(
                 contentResolver = applicationContext.contentResolver,
             ),
         )

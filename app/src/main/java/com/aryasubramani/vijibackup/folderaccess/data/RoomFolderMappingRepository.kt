@@ -36,7 +36,7 @@ import kotlinx.coroutines.withContext
 class RoomFolderMappingRepository(
     private val dao: FolderAccessDao,
     private val grantManager: LocalFolderGrantManager,
-    private val metadataReader: LocalFolderMetadataReader = LocalFolderMetadataReader { null },
+    private val metadataReader: LocalFolderMetadataReader,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val requestTokenFactory: () -> String = { UUID.randomUUID().toString() },
     private val mappingIdFactory: () -> String = { UUID.randomUUID().toString() },
