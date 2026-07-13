@@ -99,7 +99,7 @@ and session rules remain unchanged. The approved branch of the app composes the
 folder screen; every non-approved state continues to hide all folder metadata.
 
 One `FolderAccessViewModel` owns user-driven workflow ordering. `MainActivity`
-only launches the picker, retains the launched request ID across recreation, and
+only launches the picker, retains the launched request token across recreation, and
 returns the result. The repository owns durable changes and compensation. The
 ViewModel rejects add, scan, enable/disable, repair, and remove calls unless it
 currently holds an approved actor supplied from `AuthUiState.Approved`.
@@ -174,7 +174,7 @@ explicit A-to-B live test and is not inferred from email similarity.
 | Field | Contract |
 |---|---|
 | `slot` | Constant singleton primary key; repository never inserts another slot |
-| `request_id` | Monotonic launch generation, separate from the singleton key |
+| `request_token` | App-generated UUID launch token, separate from the singleton key |
 | `operation` | `ADD` or `REPAIR` |
 | `target_mapping_id` | Required only for repair |
 | `selected_tree_uri` | Null before result; stored before grant acquisition |
@@ -182,9 +182,11 @@ explicit A-to-B live test and is not inferred from email similarity.
 | `created_at_epoch_ms` | Used to expire abandoned work |
 
 `begin` is a serialized Room transaction that rejects an occupied slot before
-emitting a launch. The activity captures that request ID with the launcher and
+emitting a launch. The activity captures that request token with the launcher and
 passes it back alongside URI and result flags. The repository ignores stale or
-mismatched generations without taking a persistent grant.
+mismatched tokens without taking a persistent grant. Tokens are opaque and are
+never derived from process time, account identity, provider data, or a resettable
+in-memory counter.
 
 ### Public Interfaces
 
@@ -243,11 +245,11 @@ DocumentsUI therefore causes reauthentication. Preserve that rule.
 
 ```text
 Approved actor
-  -> serialize begin ADD or REPAIR into singleton slot with request ID R
+  -> serialize begin ADD or REPAIR into singleton slot with request token R
   -> launch system picker
   -> app backgrounds and auth relocks
   -> callback with R and cancellation: clear matching pending row
-  -> callback with stale request ID: ignore without taking a grant
+  -> callback with stale request token: ignore without taking a grant
   -> callback with R and URI: durably store URI as SELECTION_RECEIVED
   -> take and verify read-only persistent grant
   -> atomically add/repair mapping and clear pending row
@@ -260,7 +262,7 @@ actions still require a current approved actor. Auth reauthentication and picker
 result delivery may arrive in either order without changing the result.
 
 Only one picker operation may exist. Duplicate taps do not launch concurrent
-pickers. The activity retains launched request ID R across recreation. A process
+pickers. The activity retains launched request token R across recreation. A process
 restart restores the pending record before grant reconciliation so a received
 selection is not mistaken for an orphan.
 
@@ -281,7 +283,7 @@ Every operation therefore has an explicit compensation path.
 
 ### Add
 
-1. Confirm callback request ID matches the singleton pending row.
+1. Confirm callback request token matches the singleton pending row.
 2. Validate `content://` scheme and tree-URI shape.
 3. Reject an exact URI already stored.
 4. Store URI as `SELECTION_RECEIVED` before taking a persistent grant.
@@ -507,7 +509,7 @@ the blast-radius suite before the next slice.
 
 - Prove request/cancel state has no mapping side effect.
 - Prove duplicate launch suppression.
-- Prove launched request generation survives recreation and stale callbacks are
+- Prove the launched request token survives recreation and stale callbacks are
   ignored before a persistent grant is taken.
 - Prove actual granted flags are retained for validation.
 - Prove auth-first and picker-result-first event orders converge.
