@@ -223,11 +223,12 @@ class RoomFolderMappingRepository(
         treeUri: String,
     ): FolderPickerCompletion {
         val mappingId = mappingIdFactory()
+        val displayName = resolveDisplayName(treeUri)
         val committed = dao.commitAddedMapping(
             mapping = LocalFolderMappingEntity(
                 id = mappingId,
                 treeUri = treeUri,
-                sourceDisplayName = null,
+                sourceDisplayName = displayName,
                 enabled = true,
             ),
             requestToken = pending.requestToken,
@@ -247,11 +248,16 @@ class RoomFolderMappingRepository(
         currentMapping: LocalFolderMappingEntity,
         replacementTreeUri: String,
     ): FolderPickerCompletion {
+        val replacementDisplayName = resolveDisplayName(replacementTreeUri)
+            ?: currentMapping.sourceDisplayName.takeIf {
+                currentMapping.treeUri == replacementTreeUri
+            }
         if (currentMapping.treeUri == replacementTreeUri) {
             return if (
                 dao.commitRepairedMapping(
                     mappingId = currentMapping.id,
                     replacementTreeUri = replacementTreeUri,
+                    replacementDisplayName = replacementDisplayName,
                     requestToken = pending.requestToken,
                 )
             ) {
@@ -264,6 +270,7 @@ class RoomFolderMappingRepository(
         val committed = dao.commitRepairedMapping(
             mappingId = currentMapping.id,
             replacementTreeUri = replacementTreeUri,
+            replacementDisplayName = replacementDisplayName,
             requestToken = pending.requestToken,
         )
         if (!committed) {
@@ -362,6 +369,8 @@ class RoomFolderMappingRepository(
                 releasedUris += grant.treeUri
             }
         }
+
+        refreshMappedDisplayNames(grantsByUri)
     }
 
     private suspend fun normalizePersistedGrants(
@@ -396,11 +405,12 @@ class RoomFolderMappingRepository(
     ) {
         val committed = when (pending.operation) {
             PendingFolderOperationType.Add -> runCatching {
+                val displayName = resolveDisplayName(selectedTreeUri)
                 dao.commitAddedMapping(
                     mapping = LocalFolderMappingEntity(
                         id = mappingIdFactory(),
                         treeUri = selectedTreeUri,
-                        sourceDisplayName = null,
+                        sourceDisplayName = displayName,
                         enabled = true,
                     ),
                     requestToken = pending.requestToken,
@@ -411,9 +421,15 @@ class RoomFolderMappingRepository(
             }
             PendingFolderOperationType.Repair -> {
                 val targetMappingId = requireNotNull(pending.targetMappingId)
+                val currentMapping = dao.mappingById(targetMappingId)
+                val replacementDisplayName = resolveDisplayName(selectedTreeUri)
+                    ?: currentMapping?.sourceDisplayName.takeIf {
+                        currentMapping?.treeUri == selectedTreeUri
+                    }
                 dao.commitRepairedMapping(
                     mappingId = targetMappingId,
                     replacementTreeUri = selectedTreeUri,
+                    replacementDisplayName = replacementDisplayName,
                     requestToken = pending.requestToken,
                 )
             }
@@ -466,6 +482,27 @@ class RoomFolderMappingRepository(
         check(grantManager.releaseGrant(treeUri) == GrantReleaseResult.Released) {
             "Folder grant cleanup is incomplete"
         }
+    }
+
+    private suspend fun refreshMappedDisplayNames(
+        grantsByUri: Map<String, PersistedFolderGrant>,
+    ) {
+        dao.allMappings().forEach { mapping ->
+            if (grantsByUri[mapping.treeUri]?.hasReadAccess != true) return@forEach
+            val displayName = resolveDisplayName(mapping.treeUri) ?: return@forEach
+            if (displayName == mapping.sourceDisplayName) return@forEach
+            check(dao.updateMappingDisplayName(mapping.id, displayName) == 1) {
+                "Folder mapping changed during metadata refresh"
+            }
+        }
+    }
+
+    private suspend fun resolveDisplayName(treeUri: String): String? = try {
+        metadataReader.displayName(treeUri)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
     }
 
     private suspend fun <T> storageResult(failure: T, block: suspend () -> T): T = try {

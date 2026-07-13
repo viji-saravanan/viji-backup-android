@@ -32,6 +32,11 @@ abstract class FolderAccessDao {
     @Query("UPDATE local_folder_mappings SET enabled = :enabled WHERE id = :mappingId")
     abstract suspend fun updateMappingEnabled(mappingId: String, enabled: Boolean): Int
 
+    @Query(
+        "UPDATE local_folder_mappings SET source_display_name = :displayName WHERE id = :mappingId",
+    )
+    abstract suspend fun updateMappingDisplayName(mappingId: String, displayName: String): Int
+
     @Query("DELETE FROM local_folder_mappings WHERE id = :mappingId")
     abstract suspend fun deleteMapping(mappingId: String): Int
 
@@ -142,19 +147,21 @@ abstract class FolderAccessDao {
     @Query(
         """
         UPDATE local_folder_mappings
-        SET tree_uri = :replacementTreeUri, source_display_name = NULL
+        SET tree_uri = :replacementTreeUri, source_display_name = :replacementDisplayName
         WHERE id = :mappingId
         """,
     )
     protected abstract suspend fun updateMappingTreeUri(
         mappingId: String,
         replacementTreeUri: String,
+        replacementDisplayName: String?,
     ): Int
 
     @Transaction
     open suspend fun commitRepairedMapping(
         mappingId: String,
         replacementTreeUri: String,
+        replacementDisplayName: String?,
         requestToken: String,
     ): Boolean {
         val pending = pendingOperation()
@@ -168,7 +175,15 @@ abstract class FolderAccessDao {
             return false
         }
 
-        if (updateMappingTreeUri(mappingId, replacementTreeUri) != 1) return false
+        if (
+            updateMappingTreeUri(
+                mappingId = mappingId,
+                replacementTreeUri = replacementTreeUri,
+                replacementDisplayName = replacementDisplayName,
+            ) != 1
+        ) {
+            return false
+        }
         check(deleteSelectionReceivedForCommit(requestToken) == 1) {
             "Pending folder operation changed during repair transaction"
         }
