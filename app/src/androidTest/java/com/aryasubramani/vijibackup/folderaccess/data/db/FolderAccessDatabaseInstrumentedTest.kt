@@ -5,6 +5,10 @@ import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -129,12 +133,116 @@ class FolderAccessDatabaseInstrumentedTest {
         )
     }
 
+    @Test
+    fun concurrentBeginsAdmitExactlyOnePendingOperation() = runTest {
+        val start = CompletableDeferred<Unit>()
+        val results = coroutineScope {
+            val first = async(Dispatchers.IO) {
+                start.await()
+                database.folderAccessDao().tryBeginPendingOperation(
+                    pendingOperation("request-a", PendingFolderOperationType.Add),
+                )
+            }
+            val second = async(Dispatchers.IO) {
+                start.await()
+                database.folderAccessDao().tryBeginPendingOperation(
+                    pendingOperation("request-b", PendingFolderOperationType.Add),
+                )
+            }
+            start.complete(Unit)
+            listOf(first.await(), second.await())
+        }
+
+        assertEquals(1, results.count { it })
+        assertEquals(1, results.count { !it })
+        assertTrue(
+            database.folderAccessDao().pendingOperation()?.requestToken in
+                setOf("request-a", "request-b"),
+        )
+    }
+
+    @Test
+    fun everyPendingStateSurvivesDatabaseRecreation() = runTest {
+        val requested = pendingOperation("request-a", PendingFolderOperationType.Add)
+        assertTrue(database.folderAccessDao().tryBeginPendingOperation(requested))
+        reopenDatabase()
+        assertEquals(requested, database.folderAccessDao().pendingOperation())
+
+        val treeUri = "content://provider.test/tree/selected"
+        assertEquals(
+            1,
+            database.folderAccessDao().markSelectionReceived(requested.requestToken, treeUri),
+        )
+        reopenDatabase()
+        assertEquals(
+            requested.copy(
+                selectedTreeUri = treeUri,
+                state = PendingFolderOperationState.SelectionReceived,
+            ),
+            database.folderAccessDao().pendingOperation(),
+        )
+
+        assertEquals(
+            1,
+            database.folderAccessDao().markPendingAbandoning(requested.requestToken),
+        )
+        reopenDatabase()
+        assertEquals(
+            PendingFolderOperationState.Abandoning,
+            database.folderAccessDao().pendingOperation()?.state,
+        )
+    }
+
+    @Test
+    fun malformedSingletonSlotFailsClosedAndCannotAdmitAnotherOperation() = runTest {
+        database.openHelper.writableDatabase.execSQL(
+            """
+            INSERT INTO pending_folder_operations(
+                slot, request_token, operation, target_mapping_id,
+                selected_tree_uri, state, created_at_epoch_ms
+            ) VALUES(2, 'corrupt-token', 'ADD', NULL, NULL, 'REQUESTED', 1000)
+            """.trimIndent(),
+        )
+
+        assertTrue(
+            runCatching { database.folderAccessDao().pendingOperation() }.isFailure,
+        )
+        assertTrue(
+            runCatching {
+                database.folderAccessDao().tryBeginPendingOperation(
+                    pendingOperation("request-a", PendingFolderOperationType.Add),
+                )
+            }.isFailure,
+        )
+    }
+
+    @Test
+    fun unknownPersistedEnumFailsClosed() = runTest {
+        database.openHelper.writableDatabase.execSQL(
+            """
+            INSERT INTO pending_folder_operations(
+                slot, request_token, operation, target_mapping_id,
+                selected_tree_uri, state, created_at_epoch_ms
+            ) VALUES(1, 'corrupt-token', 'UNKNOWN', NULL, NULL, 'REQUESTED', 1000)
+            """.trimIndent(),
+        )
+
+        assertTrue(
+            runCatching { database.folderAccessDao().pendingOperation() }.isFailure,
+        )
+    }
+
     private fun openDatabase(): VijiBackupDatabase =
         Room.databaseBuilder(
             context,
             VijiBackupDatabase::class.java,
             TEST_DATABASE_NAME,
         ).build()
+
+    private fun reopenDatabase() {
+        database.close()
+        database = openDatabase()
+    }
 
     private fun mapping(
         id: String,

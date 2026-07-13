@@ -36,27 +36,39 @@ class AppContextInstrumentedTest {
 
     @Test
     fun folderAccessDatabaseIsExcludedFromEveryBackupTransport() {
-        assertEquals(1, databaseExclusionCount(R.xml.backup_rules))
-        assertEquals(2, databaseExclusionCount(R.xml.data_extraction_rules))
+        assertEquals(
+            listOf("full-backup-content"),
+            databaseExclusionParents(R.xml.backup_rules),
+        )
+        assertEquals(
+            listOf("cloud-backup", "device-transfer"),
+            databaseExclusionParents(R.xml.data_extraction_rules).sorted(),
+        )
     }
 
-    private fun databaseExclusionCount(resourceId: Int): Int {
+    private fun databaseExclusionParents(resourceId: Int): List<String> {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         return appContext.resources.getXml(resourceId).use { parser ->
-            var count = 0
+            val elementStack = ArrayDeque<String>()
+            val parents = mutableListOf<String>()
             var event = parser.eventType
             while (event != XmlPullParser.END_DOCUMENT) {
-                if (
-                    event == XmlPullParser.START_TAG &&
-                    parser.name == "exclude" &&
-                    parser.getAttributeValue(null, "domain") == "database" &&
-                    parser.getAttributeValue(null, "path") == "."
-                ) {
-                    count += 1
+                when (event) {
+                    XmlPullParser.START_TAG -> {
+                        if (
+                            parser.name == "exclude" &&
+                            parser.getAttributeValue(null, "domain") == "database" &&
+                            parser.getAttributeValue(null, "path") == "."
+                        ) {
+                            parents += elementStack.last()
+                        }
+                        elementStack.addLast(parser.name)
+                    }
+                    XmlPullParser.END_TAG -> elementStack.removeLast()
                 }
                 event = parser.next()
             }
-            count
+            parents
         }
     }
 }
