@@ -182,8 +182,9 @@ Automated evidence current on 2026-07-12:
 
 - 59 JVM tests per flavor cover exact policy matching, locale normalization,
   malformed configuration, session persistence ordering, stale callbacks,
-  duplicate sign-in/sign-out, cancellation, retry classification, foreground
-  relocking, restart-resumable provider cleanup, and lifecycle request dispatch;
+  duplicate sign-in/sign-out, cancellation, retry classification,
+  current-process approval retention, cold-process reauthentication,
+  restart-resumable provider cleanup, and lifecycle request dispatch;
 - 28 connected tests per flavor cover Credential Manager request construction
   and result mapping, malformed credentials, cancellation and fatal propagation,
   DataStore recreation/corruption/partial-state repair, Compose text/actions and
@@ -201,6 +202,8 @@ Redacted live evidence:
 - B1 was blocked under a temporary local allowlist and normal configuration was restored;
 - backing out of Google UI recovered without cached approval;
 - A1 restart required fresh reauthentication before approval;
+- Home, DocumentsUI, and activity recreation retained one approved in-process
+  session without launching another Google chooser;
 - sign-out cleared the local session;
 - the user independently reported the configured live flow working;
 - an A1 process-only log scan found no fatal, raw-email, JWT-shaped, or
@@ -240,6 +243,28 @@ system picker and real persisted grant:
   alter dedicated test content;
 - process logs and public evidence contain no raw URI, live filename, subject,
   token, OAuth identifier, or exception payload.
+
+Focused evidence current on 2026-07-13:
+
+- 30 repository instrumentation cases pass on Android user 0, covering add,
+  duplicate rejection, pending recovery, grant reduction/reconciliation,
+  metadata backfill, repair, removal, cancellation, and forced SQLite
+  delete-failure retry;
+- 7 Compose folder-screen cases pass on the Samsung, covering real/fallback
+  labels, exact-ID forwarding, named confirmation, cancel-without-side-effect,
+  in-flight progress, disabled competing actions, and non-sensitive notices;
+- the app-composition lifecycle case proves one explicit sign-in and one
+  long-lived folder observer across Home/resume and activity recreation;
+- the redacted live probe confirms 2 production mappings, 2 persisted tree
+  grants, 0 write grants, and no pending picker operation;
+- before the first approved launch containing the metadata reader, the redacted
+  probe correctly found 0 named mappings. Acceptance requires the same probe to
+  find 2 after approved reconciliation; names and URIs must not be printed;
+- the exact Downloads root is visibly blocked by Android DocumentsUI as the
+  official Android 11+ contract requires. This is not an app defect and must not
+  be bypassed silently;
+- live removal remains pending. The user must identify one dispensable test
+  mapping first; the other real mapping must remain untouched.
 
 Impossible-to-induce branches use a controllable instrumentation-only
 DocumentsProvider through the production scanner. This is not live acceptance.
