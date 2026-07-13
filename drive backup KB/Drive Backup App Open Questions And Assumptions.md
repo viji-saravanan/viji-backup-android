@@ -33,7 +33,7 @@ do_not_read_when:
 - `EXTRA_LOCAL_ONLY` is only a picker hint. Phase 3 does not claim that a provider-returned URI is cryptographically proven to be phone-local.
 - Every configured approved account is a trusted co-administrator of this installation's folder mappings until profile ownership is designed.
 - Selecting an exact duplicate tree is rejected. Parent-child overlap detection is deferred to Phase 5, where sync path semantics exist.
-- Android 11 and newer can block storage roots, the Downloads root, `Android/data`, and `Android/obb`; users may need to choose an allowed subfolder instead.
+- Android 11 and newer block storage roots, the Downloads root, `Android/data`, and `Android/obb` in the SAF picker; users can choose an eligible subfolder instead.
 - Phase 3 acceptance requires the physical Samsung and its real folders. Live Drive authorization and upload acceptance begin in Phase 4 because Phase 3 production code makes no Drive request.
 
 ## Assumptions
@@ -41,9 +41,8 @@ do_not_read_when:
 - Users are trusted people selected by Arya.
 - Users are comfortable with Arya having access to normal-mode backups in the shared Drive folder.
 - Users have enough Google Drive quota or the shared-folder quota behavior is acceptable after testing.
-- Android folder picker access is acceptable even if some special folders or
-  roots cannot be selected. The app explains the limitation and never works
-  around it with all-files access.
+- Android folder picker access remains the privacy-first default even when some
+  special folders or roots cannot be selected.
 - All currently approved accounts are mutually trusted with folder labels and
   mapping controls on the same app installation.
 - Exact periodic sync timing is not required.
@@ -58,6 +57,7 @@ do_not_read_when:
 | Should the public APK gate users with opaque Google subject identifiers, a server-side policy, or the authoritative Drive ACL? | Plain email allowlists injected into an APK can still be extracted even when absent from Git. | Before public release |
 | Should MVP preserve old remote versions before overwrite? Recommended answer: yes, keep last 3 versions or 30 days, whichever is smaller. | Protects against corrupt or unwanted local changes being uploaded over the only good backup; costs Drive storage. | Before changed-file upload implementation |
 | Should MVP include basic exclusions only, or full include/exclude pattern rules? Recommended answer: basic exclusions only. | Full pattern rules are useful but can delay the core backup engine. | Before settings implementation |
+| Is backing up the exact Downloads root mandatory? Recommended answer: yes only if the user accepts a separate opt-in all-files-access source with broad shared-storage visibility; otherwise support selectable Downloads subfolders only. | Android 11+ deliberately blocks Downloads-root SAF selection. `MANAGE_EXTERNAL_STORAGE` can support backup apps but materially expands access and testing/security obligations. | Before implementing the next folder source type |
 
 ## Risk Register
 

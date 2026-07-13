@@ -34,6 +34,18 @@ roadmap phases. When Drive behavior is introduced in Phase 4, its acceptance
 tests must use the real signed-in account and shared Drive folder, not a fake
 Drive implementation.
 
+## Implementation Checkpoint
+
+As of 2026-07-13, Room schema 1, durable picker correlation, read-only grant
+acquisition/reconciliation, add, repair, display-name resolution/backfill,
+confirmed removal, and the approved folder UI are implemented on the Phase 3
+branch. Process-scope approval survives Home, DocumentsUI, and activity
+recreation; a cold process still reauthenticates.
+
+Health classification, iterative scanning, scan cancellation, enable/disable,
+sign-out compensation for pending picker work, and the full restart/upgrade live
+matrix remain incomplete. Phase 3 must not be described as complete yet.
+
 ## Confirmed Product Inputs
 
 - Folder configuration belongs to the Android app installation, not to one of
@@ -42,17 +54,19 @@ Drive implementation.
 - Every approved identity configured for one installation is an intentional
   co-administrator of its folder mappings. Before unrelated people are added to
   the allowlist, mappings must be redesigned with explicit profile ownership.
-- Every new user action is protected by the Phase 2 auth gate. Completion of an
-  already-authorized system-picker result may finish while auth is relocked, but
-  it may only consume the exact durable request that launched that picker.
+- Every new user action is protected by the Phase 2 auth gate. The approved
+  process remains approved while DocumentsUI or Home is foregrounded; a cold
+  process reauthenticates. Picker completion may only consume the exact durable
+  request that launched that picker.
 - Local access is read only. The app never renames, edits, moves, or deletes a
   source file or source folder.
 - Removing a mapping only removes app configuration and releases its URI grant.
   It never deletes local or future Drive content.
 - Exact duplicate mappings are rejected. Parent/child overlap policy belongs to
   Phase 5, where duplicate upload and destination semantics are available.
-- The app accepts only locations the system picker grants. It does not request
-  broad storage access.
+- The current SAF source accepts only locations the system picker grants. It
+  does not request broad storage access. A dedicated full-Downloads source is a
+  separate unresolved product/security decision.
 
 ## Non-Negotiable Android Limits
 
@@ -195,8 +209,10 @@ Keep the production seams narrow:
 - `FolderMappingRepository`: observe mappings, begin and complete picker
   operations, cancel/expire pending work, enable/disable, remove, validate, and
   reconcile grants.
-- `LocalFolderGrantManager`: acquire/release read-only grants, inspect current
-  persisted grants, and query root metadata.
+- `LocalFolderGrantManager`: acquire/release read-only grants and inspect current
+  persisted grants.
+- `LocalFolderMetadataReader`: query and sanitize provider-derived root labels
+  without exposing provider IDs or raw URIs.
 - `LocalFolderScanner`: expose a cancellable cold stream of scan events from a
   persisted tree grant.
 
@@ -217,7 +233,7 @@ runs on that dispatcher, never on the activity or Compose main thread.
 ## Read-Only Picker Contract
 
 Register the folder picker at the activity root so its callback remains alive
-when protected Compose content leaves composition during auth relock.
+when protected Compose content leaves composition during an auth-state change.
 
 Use a small `ActivityResultContract` based on `ACTION_OPEN_DOCUMENT_TREE` that:
 
@@ -240,26 +256,29 @@ Do not add `READ_EXTERNAL_STORAGE`, `READ_MEDIA_*`, `WRITE_EXTERNAL_STORAGE`, or
 
 ## Auth And Picker State Flow
 
-Phase 2 deliberately relocks an approved session when the app backgrounds.
-DocumentsUI therefore causes reauthentication. Preserve that rule.
+Approval is process-scoped. Home, DocumentsUI, and activity recreation must not
+trigger another Google chooser while the same approved ViewModel/process is
+alive. A new process restores cached identity only as
+`ReauthenticationRequired` and must prove approval again.
 
 ```text
 Approved actor
   -> serialize begin ADD or REPAIR into singleton slot with request token R
   -> launch system picker
-  -> app backgrounds and auth relocks
+  -> app backgrounds while current-process approval remains valid
   -> callback with R and cancellation: clear matching pending row
   -> callback with stale request token: ignore without taking a grant
   -> callback with R and URI: durably store URI as SELECTION_RECEIVED
   -> take and verify read-only persistent grant
   -> atomically add/repair mapping and clear pending row
-  -> after any approved actor returns: query metadata and expose mapping UI
+  -> query safe root metadata; commit a nullable display label
+  -> expose mapping UI and refresh labels during approved reconciliation
 ```
 
-Picker completion is the bounded completion of an action approved before launch;
-it does not scan content or query provider metadata while auth is relocked. New
-actions still require a current approved actor. Auth reauthentication and picker
-result delivery may arrive in either order without changing the result.
+Picker completion is the bounded completion of an action approved before launch.
+New actions still require a current approved actor. A cold-process recovery may
+finalize a durably staged selection during repository reconciliation, but it
+must not expose protected metadata until authentication is approved.
 
 Only one picker operation may exist. Duplicate taps do not launch concurrent
 pickers. The activity retains launched request token R across recreation. A process
@@ -290,14 +309,16 @@ Every operation therefore has an explicit compensation path.
 5. Confirm the returned flags include a persistable read grant.
 6. Take the persistable read grant.
 7. Confirm read is persisted and write is not persisted.
-8. Insert a mapping with unresolved display name and delete the pending row in
-   one Room transaction.
-9. If a post-grant step fails, mark pending work `ABANDONING`, then release the
+8. Query and sanitize the root display label. Provider/metadata failure yields
+   a nullable label and must not fail an otherwise valid selection.
+9. Insert the mapping and delete the pending row in one Room transaction.
+10. If a post-grant step fails, mark pending work `ABANDONING`, then release the
    URI only after checking every durable and pending reference.
 
-Provider metadata is queried later on the IO dispatcher when an approved actor
-returns. Exact duplicates remain blocked on every API. Parent/child overlap is
-deferred to Phase 5 rather than guessed from opaque provider IDs.
+Existing mappings with verified read grants refresh missing or changed display
+labels during initialization. Exact duplicates remain blocked on every API.
+Parent/child overlap is deferred to Phase 5 rather than guessed from opaque
+provider IDs.
 
 ### Repair
 
@@ -315,12 +336,14 @@ deferred to Phase 5 rather than guessed from opaque provider IDs.
 
 ### Remove
 
-1. Delete the mapping in Room.
-2. Check whether another durable record references the same URI.
-3. Check whether a live pending operation references the same URI.
-4. Release the grant only when it is fully unreferenced.
-5. If release fails, keep the mapping removed and report a non-sensitive cleanup
-   warning; startup orphan reconciliation retries the release.
+1. Reject removal while any picker operation is pending.
+2. Resolve the exact mapping or report `MappingNotFound` without touching grants.
+3. Release and verify the mapping's persisted grant first.
+4. If release fails, keep the mapping unchanged and report a non-sensitive,
+   retryable grant failure.
+5. Delete the mapping only after verified release.
+6. If Room deletion fails after release, keep the mapping visible. A retry
+   performs the idempotent release again and then retries deletion.
 
 No remove path calls a document delete API.
 
@@ -329,7 +352,8 @@ No remove path calls a document delete API.
 - Load pending operations before releasing any orphan grant.
 - Load all durable mapping URIs and Android persisted grants.
 - Resume `SELECTION_RECEIVED` when its matching read grant exists by committing
-  the already-authorized add/repair without reading provider metadata.
+  the already-authorized add/repair. Resolve optional root metadata, but never
+  let metadata failure block recovery.
 - Abandon `SELECTION_RECEIVED` when no matching persisted grant exists.
 - Retry every `ABANDONING` cleanup before accepting new picker work.
 - A mapping without exact persisted read access has `PermissionMissing` health.
@@ -349,7 +373,7 @@ process, restart the real repository, and verify exact Room/pending/grant state:
 | Selection stored before grant acquisition | No grant means abandon pending work |
 | Grant acquired before add transaction | Matching pending URI and grant finalize mapping |
 | Replacement mapping committed before old grant release | Keep replacement; release old orphan |
-| Mapping removed before grant release | Keep mapping removed; release orphan |
+| Grant released before mapping delete | Keep mapping visible; retry idempotent release and delete |
 | `ABANDONING` stored before cleanup | Retry release idempotently; never revive operation |
 
 The test pause seam is available only to tests and never changes production
@@ -523,12 +547,15 @@ the blast-radius suite before the next slice.
 - Prove the initialization barrier serializes reconciliation and picker result.
 - Live Samsung gate: add a dedicated real test tree.
 
-### S4. Auth Relock, Sign-Out, And Crash Recovery
+### S4. Auth Lifecycle, Sign-Out, And Crash Recovery
 
-- Prove picker backgrounding does not weaken Phase 2 relock.
-- Prove no new folder action or provider metadata query runs while non-approved.
+- Prove picker/Home backgrounding retains current-process approval without a
+  duplicate sign-in request.
+- Prove cold-process restoration still requires reauthentication.
+- Prove no new user-initiated folder action or mapping observation starts while
+  non-approved.
 - Prove an exact previously authorized callback may complete its opaque mapping
-  transaction while relocked.
+  transaction after an auth-state or lifecycle transition.
 - Prove any approved co-administrator can use a completed mapping.
 - Prove cancellation, sign-out, expiry, stale result, and process recreation
   compensate grants without reviving abandoned work.
@@ -565,7 +592,7 @@ the blast-radius suite before the next slice.
 - Prove non-approved auth states expose no folder metadata.
 - Prove add, cancel, enable/disable, scan/cancel, repair, and remove.
 - Prove recreation retains durable state and restores pending-operation UI.
-- Prove removing, repairing, relocking, or disabling during a scan rejects stale
+- Prove removing, repairing, auth gating, or disabling during a scan rejects stale
   events and does not mutate replacement state.
 - Prove recent-apps snapshot protection.
 - Inspect screenshots on the Samsung at normal and enlarged font scale.
@@ -684,7 +711,7 @@ not get silently marked passed.
 
 Any Phase 3 edit must inspect and test all affected contracts:
 
-- auth relock and approved-content gating;
+- process-scope auth lifecycle, cold-start reauthentication, and approved-content gating;
 - activity result lifecycle and process recreation;
 - Room schema, DAO, transactions, backup exclusions, and migration baseline;
 - URI grant acquisition, release, and orphan reconciliation;
