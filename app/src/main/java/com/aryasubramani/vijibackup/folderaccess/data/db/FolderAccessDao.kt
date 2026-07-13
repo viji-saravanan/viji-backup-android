@@ -35,8 +35,19 @@ abstract class FolderAccessDao {
     @Query("DELETE FROM local_folder_mappings WHERE id = :mappingId")
     abstract suspend fun deleteMapping(mappingId: String): Int
 
-    @Query("SELECT * FROM pending_folder_operations WHERE slot = 1 LIMIT 1")
-    abstract suspend fun pendingOperation(): PendingFolderOperationEntity?
+    @Query("SELECT * FROM pending_folder_operations")
+    protected abstract suspend fun allPendingOperations(): List<PendingFolderOperationEntity>
+
+    @Transaction
+    open suspend fun pendingOperation(): PendingFolderOperationEntity? {
+        val pending = allPendingOperations()
+        check(pending.size <= 1) { "Multiple pending folder operations found" }
+        return pending.firstOrNull().also { operation ->
+            check(operation == null || operation.slot == PendingFolderOperationEntity.SINGLETON_SLOT) {
+                "Invalid pending folder operation slot"
+            }
+        }
+    }
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     protected abstract suspend fun insertPendingOperation(
@@ -44,8 +55,10 @@ abstract class FolderAccessDao {
     ): Long
 
     @Transaction
-    open suspend fun tryBeginPendingOperation(operation: PendingFolderOperationEntity): Boolean =
-        insertPendingOperation(operation) != INSERT_IGNORED
+    open suspend fun tryBeginPendingOperation(operation: PendingFolderOperationEntity): Boolean {
+        if (allPendingOperations().isNotEmpty()) return false
+        return insertPendingOperation(operation) != INSERT_IGNORED
+    }
 
     @Query(
         """
@@ -67,10 +80,42 @@ abstract class FolderAccessDao {
         SET state = 'ABANDONING'
         WHERE slot = 1
           AND request_token = :requestToken
-          AND state = 'SELECTION_RECEIVED'
+          AND state IN ('REQUESTED', 'SELECTION_RECEIVED')
         """,
     )
     abstract suspend fun markPendingAbandoning(requestToken: String): Int
+
+    @Query(
+        """
+        DELETE FROM pending_folder_operations
+        WHERE slot = 1
+          AND request_token = :requestToken
+          AND state = 'REQUESTED'
+        """,
+    )
+    abstract suspend fun cancelRequestedOperation(requestToken: String): Int
+
+    @Query(
+        """
+        DELETE FROM pending_folder_operations
+        WHERE slot = 1
+          AND request_token = :requestToken
+          AND state = 'ABANDONING'
+        """,
+    )
+    abstract suspend fun deleteAbandoningOperation(requestToken: String): Int
+
+    @Query(
+        """
+        DELETE FROM pending_folder_operations
+        WHERE slot = 1
+          AND request_token = :requestToken
+          AND state = 'SELECTION_RECEIVED'
+        """,
+    )
+    protected abstract suspend fun deleteSelectionReceivedForCommit(
+        requestToken: String,
+    ): Int
 
     @Transaction
     open suspend fun commitAddedMapping(
@@ -88,7 +133,7 @@ abstract class FolderAccessDao {
         }
 
         insertMapping(mapping)
-        check(clearPendingOperation(requestToken) == 1) {
+        check(deleteSelectionReceivedForCommit(requestToken) == 1) {
             "Pending folder operation changed during add transaction"
         }
         return true
@@ -96,11 +141,39 @@ abstract class FolderAccessDao {
 
     @Query(
         """
-        DELETE FROM pending_folder_operations
-        WHERE slot = 1 AND request_token = :requestToken
+        UPDATE local_folder_mappings
+        SET tree_uri = :replacementTreeUri, source_display_name = NULL
+        WHERE id = :mappingId
         """,
     )
-    abstract suspend fun clearPendingOperation(requestToken: String): Int
+    protected abstract suspend fun updateMappingTreeUri(
+        mappingId: String,
+        replacementTreeUri: String,
+    ): Int
+
+    @Transaction
+    open suspend fun commitRepairedMapping(
+        mappingId: String,
+        replacementTreeUri: String,
+        requestToken: String,
+    ): Boolean {
+        val pending = pendingOperation()
+        if (
+            pending?.requestToken != requestToken ||
+            pending.state != PendingFolderOperationState.SelectionReceived ||
+            pending.operation != PendingFolderOperationType.Repair ||
+            pending.targetMappingId != mappingId ||
+            pending.selectedTreeUri != replacementTreeUri
+        ) {
+            return false
+        }
+
+        if (updateMappingTreeUri(mappingId, replacementTreeUri) != 1) return false
+        check(deleteSelectionReceivedForCommit(requestToken) == 1) {
+            "Pending folder operation changed during repair transaction"
+        }
+        return true
+    }
 
     private companion object {
         const val INSERT_IGNORED = -1L

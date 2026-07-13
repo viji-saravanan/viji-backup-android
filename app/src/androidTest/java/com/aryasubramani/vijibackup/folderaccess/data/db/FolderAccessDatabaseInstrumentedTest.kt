@@ -85,9 +85,9 @@ class FolderAccessDatabaseInstrumentedTest {
         assertTrue(database.folderAccessDao().tryBeginPendingOperation(first))
         assertFalse(database.folderAccessDao().tryBeginPendingOperation(second))
         assertEquals(first, database.folderAccessDao().pendingOperation())
-        assertEquals(0, database.folderAccessDao().clearPendingOperation("wrong-token"))
+        assertEquals(0, database.folderAccessDao().cancelRequestedOperation("wrong-token"))
         assertEquals(first, database.folderAccessDao().pendingOperation())
-        assertEquals(1, database.folderAccessDao().clearPendingOperation(first.requestToken))
+        assertEquals(1, database.folderAccessDao().cancelRequestedOperation(first.requestToken))
         assertTrue(database.folderAccessDao().tryBeginPendingOperation(second))
         assertEquals(second, database.folderAccessDao().pendingOperation())
     }
