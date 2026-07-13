@@ -344,6 +344,10 @@ provider IDs.
 5. Delete the mapping only after verified release.
 6. If Room deletion fails after release, keep the mapping visible. A retry
    performs the idempotent release again and then retries deletion.
+7. Give each presentation-layer removal an operation generation. Deactivation
+   invalidates the active generation immediately; a late completion from an
+   older generation cannot publish a notice, clear newer progress, or admit a
+   competing mutation.
 
 No remove path calls a document delete API.
 
