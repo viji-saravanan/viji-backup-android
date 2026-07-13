@@ -13,6 +13,7 @@ import com.aryasubramani.vijibackup.folderaccess.data.db.VijiBackupDatabase
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
+import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderMetadataReader
 import com.aryasubramani.vijibackup.folderaccess.saf.AcquireReadGrantResult
 import com.aryasubramani.vijibackup.folderaccess.saf.GrantReleaseResult
 import com.aryasubramani.vijibackup.folderaccess.saf.LocalFolderGrantManager
@@ -35,6 +36,7 @@ class RoomFolderMappingRepositoryInstrumentedTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private lateinit var database: VijiBackupDatabase
     private lateinit var grants: RecordingGrantManager
+    private lateinit var metadata: RecordingFolderMetadataReader
     private lateinit var repository: RoomFolderMappingRepository
     private val requestTokens = ArrayDeque(listOf("request-a", "request-b", "request-c"))
     private val mappingIds = ArrayDeque(listOf("mapping-a", "mapping-b", "mapping-c"))
@@ -48,9 +50,11 @@ class RoomFolderMappingRepositoryInstrumentedTest {
             TEST_DATABASE_NAME,
         ).build()
         grants = RecordingGrantManager()
+        metadata = RecordingFolderMetadataReader()
         repository = RoomFolderMappingRepository(
             dao = database.folderAccessDao(),
             grantManager = grants,
+            metadataReader = metadata,
             ioDispatcher = Dispatchers.IO,
             requestTokenFactory = { requestTokens.removeFirst() },
             mappingIdFactory = { mappingIds.removeFirst() },
@@ -131,6 +135,7 @@ class RoomFolderMappingRepositoryInstrumentedTest {
     fun successfulSelectionAcquiresReadAndCommitsOneMapping() = runTest {
         val started = repository.beginAdd() as BeginFolderPickerResult.Started
         val treeUri = "content://provider.test/tree/selected"
+        metadata.displayNames[treeUri] = "Selected folder"
 
         assertEquals(
             FolderPickerCompletion.Added(mappingId = "mapping-a"),
@@ -142,8 +147,46 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         val mapping = database.folderAccessDao().mappingById("mapping-a")
         requireNotNull(mapping)
         assertEquals(treeUri, mapping.treeUri)
-        assertNull(mapping.sourceDisplayName)
+        assertEquals("Selected folder", mapping.sourceDisplayName)
         assertTrue(mapping.enabled)
+    }
+
+    @Test
+    fun initializationBackfillsExistingFolderNameWithoutReselection() = runTest {
+        val treeUri = "content://provider.test/tree/existing"
+        database.folderAccessDao().insertMapping(
+            LocalFolderMappingEntity(
+                id = "existing-mapping",
+                treeUri = treeUri,
+                sourceDisplayName = null,
+                enabled = true,
+            ),
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+        metadata.displayNames[treeUri] = "Existing folder"
+
+        val mapping = repository.observeMappings().first().single()
+
+        assertEquals("Existing folder", mapping.displayName)
+        assertEquals(
+            "Existing folder",
+            database.folderAccessDao().mappingById("existing-mapping")?.sourceDisplayName,
+        )
+    }
+
+    @Test
+    fun metadataFailureDoesNotInterruptSuccessfulSelection() = runTest {
+        val started = repository.beginAdd() as BeginFolderPickerResult.Started
+        val treeUri = "content://provider.test/tree/metadata-failure"
+        metadata.failure = IllegalStateException("test provider failure")
+
+        assertEquals(
+            FolderPickerCompletion.Added(mappingId = "mapping-a"),
+            repository.completePicker(started.request.requestToken, selected(treeUri)),
+        )
+
+        assertNull(database.folderAccessDao().mappingById("mapping-a")?.sourceDisplayName)
+        assertNull(database.folderAccessDao().pendingOperation())
     }
 
     @Test
@@ -380,6 +423,7 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         repository = RoomFolderMappingRepository(
             dao = database.folderAccessDao(),
             grantManager = grants,
+            metadataReader = metadata,
             ioDispatcher = Dispatchers.IO,
             requestTokenFactory = { requestTokens.removeFirst() },
             mappingIdFactory = {
@@ -566,5 +610,17 @@ private class RecordingGrantManager : LocalFolderGrantManager {
         releaseCalls += treeUri
         releaseFailure?.let { throw it }
         return releaseResult
+    }
+}
+
+private class RecordingFolderMetadataReader : LocalFolderMetadataReader {
+    val displayNames = mutableMapOf<String, String?>()
+    val reads = mutableListOf<String>()
+    var failure: Throwable? = null
+
+    override suspend fun displayName(treeUri: String): String? {
+        reads += treeUri
+        failure?.let { throw it }
+        return displayNames[treeUri]
     }
 }

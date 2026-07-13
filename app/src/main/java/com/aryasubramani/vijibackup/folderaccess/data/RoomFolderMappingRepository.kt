@@ -14,6 +14,7 @@ import com.aryasubramani.vijibackup.folderaccess.domain.FolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerLaunch
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
+import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderMetadataReader
 import com.aryasubramani.vijibackup.folderaccess.saf.AcquireReadGrantResult
 import com.aryasubramani.vijibackup.folderaccess.saf.GrantReleaseResult
 import com.aryasubramani.vijibackup.folderaccess.saf.LocalFolderGrantManager
@@ -35,6 +36,7 @@ import kotlinx.coroutines.withContext
 class RoomFolderMappingRepository(
     private val dao: FolderAccessDao,
     private val grantManager: LocalFolderGrantManager,
+    private val metadataReader: LocalFolderMetadataReader = LocalFolderMetadataReader { null },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val requestTokenFactory: () -> String = { UUID.randomUUID().toString() },
     private val mappingIdFactory: () -> String = { UUID.randomUUID().toString() },
