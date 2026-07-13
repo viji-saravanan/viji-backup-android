@@ -28,11 +28,13 @@ import com.aryasubramani.vijibackup.folderaccess.domain.FolderMapping
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
+import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessTestTags
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -69,8 +71,12 @@ class AppCompositionInstrumentedTest {
         runBlocking { sessionStore.clear() }
 
         try {
-            ActivityScenario.launch(MainActivity::class.java).use {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 composeRule.waitForIdle()
+
+                scenario.onActivity { activity ->
+                    assertTrue(activity.protectedWindowPolicyAppliedForTesting)
+                }
 
                 composeRule.onNodeWithTag(AuthTestTags.Screen).assertIsDisplayed()
                 composeRule.onAllNodesWithTag(VijiBackupTestTags.ProtectedContent)
@@ -101,6 +107,7 @@ class AppCompositionInstrumentedTest {
         val account = approvedAccount()
         val sessionStore = InMemoryAuthSessionStore()
         val signInModes = mutableListOf<GoogleSignInMode>()
+        val folderRepository = EmptyFolderMappingRepository()
         val fakeContainer = object : AppContainer {
             override val authSessionManager = AuthSessionManager(
                 accessPolicy = AccountAccessPolicy(setOf(account.email)),
@@ -111,7 +118,7 @@ class AppCompositionInstrumentedTest {
                 signInModes += mode
                 GoogleSignInResult.Success(account)
             }
-            override val folderMappingRepository = EmptyFolderMappingRepository()
+            override val folderMappingRepository = folderRepository
             override val isGoogleSignInConfigured = true
         }
         application.testAppContainer = fakeContainer
@@ -119,12 +126,16 @@ class AppCompositionInstrumentedTest {
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 composeRule.waitForIdle()
+
+                assertEquals(0, folderRepository.observeCalls)
                 composeRule.onNodeWithTag(AuthTestTags.SignInButton).performClick()
                 composeRule.waitForIdle()
 
                 composeRule.onNodeWithTag(VijiBackupTestTags.ProtectedContent)
                     .assertIsDisplayed()
+                composeRule.onNodeWithTag(FolderAccessTestTags.Screen).assertIsDisplayed()
                 assertEquals(listOf(GoogleSignInMode.Explicit), signInModes)
+                assertEquals(1, folderRepository.observeCalls)
 
                 scenario.moveToState(Lifecycle.State.CREATED)
                 scenario.moveToState(Lifecycle.State.RESUMED)
@@ -154,7 +165,12 @@ class AppCompositionInstrumentedTest {
 }
 
 private class EmptyFolderMappingRepository : FolderMappingRepository {
-    override fun observeMappings(): Flow<List<FolderMapping>> = flowOf(emptyList())
+    var observeCalls = 0
+
+    override fun observeMappings(): Flow<List<FolderMapping>> {
+        observeCalls += 1
+        return flowOf(emptyList())
+    }
 
     override suspend fun beginAdd(): BeginFolderPickerResult =
         BeginFolderPickerResult.StorageFailure
