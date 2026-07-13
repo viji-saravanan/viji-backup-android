@@ -11,10 +11,12 @@ import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -217,6 +219,57 @@ class FolderAccessViewModelTest {
     }
 
     @Test
+    fun lateCancelledRemovalCannotClearANewerRemoval() = runTest {
+        val firstEntered = CompletableDeferred<Unit>()
+        val finishCancelledFirst = CompletableDeferred<Unit>()
+        val finishSecond = CompletableDeferred<Unit>()
+        val repository = FakeFolderMappingRepository().apply {
+            removeHandler = { mappingId ->
+                when (mappingId) {
+                    "mapping-a" -> {
+                        firstEntered.complete(Unit)
+                        withContext(NonCancellable) {
+                            finishCancelledFirst.await()
+                        }
+                        throw CancellationException("cancelled first removal")
+                    }
+                    "mapping-b" -> {
+                        finishSecond.await()
+                        RemoveFolderResult.Removed
+                    }
+                    else -> RemoveFolderResult.Removed
+                }
+            }
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        runCurrent()
+
+        viewModel.removeFolder("mapping-a")
+        runCurrent()
+        assertTrue(firstEntered.isCompleted)
+
+        viewModel.deactivate()
+        viewModel.activate()
+        viewModel.removeFolder("mapping-b")
+        runCurrent()
+        assertEquals("mapping-b", viewModel.uiState.value.removingMappingId)
+
+        finishCancelledFirst.complete(Unit)
+        runCurrent()
+
+        assertEquals("mapping-b", viewModel.uiState.value.removingMappingId)
+        viewModel.removeFolder("mapping-c")
+        runCurrent()
+        assertEquals(listOf("mapping-a", "mapping-b"), repository.removeCalls)
+
+        finishSecond.complete(Unit)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.removingMappingId)
+        assertEquals(FolderAccessNotice.FolderRemoved, viewModel.uiState.value.notice)
+    }
+
+    @Test
     fun everyPickerCompletionHasAnExplicitNoticeAndForwardsExactSelection() = runTest {
         val repository = FakeFolderMappingRepository()
         val viewModel = FolderAccessViewModel(repository)
@@ -324,6 +377,7 @@ private class FakeFolderMappingRepository : FolderMappingRepository {
     var completionFailure: Throwable? = null
     var removeResult: RemoveFolderResult = RemoveFolderResult.StorageFailure
     var removeFailure: Throwable? = null
+    var removeHandler: (suspend (String) -> RemoveFolderResult)? = null
     var beginGate: CompletableDeferred<Unit>? = null
     var removeGate: CompletableDeferred<Unit>? = null
     var observeCalls = 0
@@ -361,6 +415,7 @@ private class FakeFolderMappingRepository : FolderMappingRepository {
 
     override suspend fun remove(mappingId: String): RemoveFolderResult {
         removeCalls += mappingId
+        removeHandler?.let { handler -> return handler(mappingId) }
         removeGate?.await()
         removeFailure?.let { throw it }
         return removeResult
