@@ -3,13 +3,13 @@ package com.aryasubramani.vijibackup.folderaccess.presentation
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
-import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -74,8 +74,8 @@ class FolderAccessScreenInstrumentedTest {
             .assertIsDisplayed()
         composeRule.onNodeWithText(appString(R.string.folder_access_included)).assertIsDisplayed()
         composeRule.onNodeWithText(appString(R.string.folder_access_paused)).assertIsDisplayed()
-        composeRule.onNodeWithText("mapping-a").assertDoesNotExist()
-        composeRule.onNodeWithText("mapping-b").assertDoesNotExist()
+        composeRule.onAllNodesWithText("mapping-a").assertCountEquals(0)
+        composeRule.onAllNodesWithText("mapping-b").assertCountEquals(0)
         composeRule.onAllNodesWithTag(FolderAccessTestTags.MappingRow).assertCountEquals(2)
 
         composeRule.onNodeWithTag(FolderAccessTestTags.repairButton("mapping-b"))
