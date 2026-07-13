@@ -17,6 +17,7 @@ import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
 import com.aryasubramani.vijibackup.folderaccess.saf.AcquireReadGrantResult
 import com.aryasubramani.vijibackup.folderaccess.saf.GrantReleaseResult
 import com.aryasubramani.vijibackup.folderaccess.saf.LocalFolderGrantManager
+import com.aryasubramani.vijibackup.folderaccess.saf.PersistedFolderGrant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -301,12 +302,142 @@ class RoomFolderMappingRepository(
 
     private suspend fun ensureInitialized() {
         if (initialized.get()) return
-        initializationMutex.withLock {
-            if (initialized.get()) return
-            operationMutex.withLock {
-                dao.pendingOperation()
-                initialized.set(true)
+        withContext(ioDispatcher) {
+            initializationMutex.withLock {
+                if (initialized.get()) return@withLock
+                operationMutex.withLock {
+                    reconcileLocked()
+                    initialized.set(true)
+                }
             }
+        }
+    }
+
+    private suspend fun reconcileLocked() {
+        val pending = dao.pendingOperation()
+        dao.allMappings()
+        val persistedGrants = grantManager.persistedGrants()
+        val grantsByUri = persistedGrants.associateBy(PersistedFolderGrant::treeUri)
+        val releasedUris = mutableSetOf<String>()
+
+        if (pending != null) {
+            when {
+                pending.isExpired(clock()) -> cleanupPending(
+                    pending = pending,
+                    grantsByUri = grantsByUri,
+                    releasedUris = releasedUris,
+                )
+                pending.state == PendingFolderOperationState.Requested -> Unit
+                pending.state == PendingFolderOperationState.SelectionReceived -> {
+                    val selectedTreeUri = requireNotNull(pending.selectedTreeUri)
+                    if (grantsByUri[selectedTreeUri]?.hasReadAccess == true) {
+                        resumeSelection(pending, selectedTreeUri, grantsByUri, releasedUris)
+                    } else {
+                        cleanupPending(pending, grantsByUri, releasedUris)
+                    }
+                }
+                pending.state == PendingFolderOperationState.Abandoning -> cleanupPending(
+                    pending = pending,
+                    grantsByUri = grantsByUri,
+                    releasedUris = releasedUris,
+                )
+            }
+        }
+
+        val mappedUris = dao.allMappings().mapTo(mutableSetOf()) { it.treeUri }
+        val livePendingUri = dao.pendingOperation()
+            ?.takeUnless { it.state == PendingFolderOperationState.Abandoning }
+            ?.selectedTreeUri
+
+        persistedGrants.forEach { grant ->
+            if (
+                grant.treeUri !in mappedUris &&
+                grant.treeUri != livePendingUri &&
+                grant.treeUri !in releasedUris
+            ) {
+                releaseOrFail(grant.treeUri)
+                releasedUris += grant.treeUri
+            }
+        }
+    }
+
+    private suspend fun resumeSelection(
+        pending: PendingFolderOperationEntity,
+        selectedTreeUri: String,
+        grantsByUri: Map<String, PersistedFolderGrant>,
+        releasedUris: MutableSet<String>,
+    ) {
+        val committed = when (pending.operation) {
+            PendingFolderOperationType.Add -> runCatching {
+                dao.commitAddedMapping(
+                    mapping = LocalFolderMappingEntity(
+                        id = mappingIdFactory(),
+                        treeUri = selectedTreeUri,
+                        sourceDisplayName = null,
+                        enabled = true,
+                    ),
+                    requestToken = pending.requestToken,
+                )
+            }.getOrElse { error ->
+                cleanupPendingIfPresent(pending, grantsByUri, releasedUris)
+                throw error
+            }
+            PendingFolderOperationType.Repair -> {
+                val targetMappingId = requireNotNull(pending.targetMappingId)
+                dao.commitRepairedMapping(
+                    mappingId = targetMappingId,
+                    replacementTreeUri = selectedTreeUri,
+                    requestToken = pending.requestToken,
+                )
+            }
+        }
+
+        if (!committed) {
+            cleanupPendingIfPresent(pending, grantsByUri, releasedUris)
+        }
+    }
+
+    private suspend fun cleanupPendingIfPresent(
+        expected: PendingFolderOperationEntity,
+        grantsByUri: Map<String, PersistedFolderGrant>,
+        releasedUris: MutableSet<String>,
+    ) {
+        val current = dao.pendingOperation()
+        if (current?.requestToken == expected.requestToken) {
+            cleanupPending(current, grantsByUri, releasedUris)
+        }
+    }
+
+    private suspend fun cleanupPending(
+        pending: PendingFolderOperationEntity,
+        grantsByUri: Map<String, PersistedFolderGrant>,
+        releasedUris: MutableSet<String>,
+    ) {
+        if (pending.state != PendingFolderOperationState.Abandoning) {
+            check(dao.markPendingAbandoning(pending.requestToken) == 1) {
+                "Pending folder operation changed during reconciliation"
+            }
+        }
+
+        val selectedTreeUri = pending.selectedTreeUri
+        val isDurablyReferenced = selectedTreeUri?.let { dao.mappingByTreeUri(it) } != null
+        if (
+            selectedTreeUri != null &&
+            !isDurablyReferenced &&
+            grantsByUri.containsKey(selectedTreeUri)
+        ) {
+            releaseOrFail(selectedTreeUri)
+            releasedUris += selectedTreeUri
+        }
+
+        check(dao.deleteAbandoningOperation(pending.requestToken) == 1) {
+            "Pending folder cleanup changed during reconciliation"
+        }
+    }
+
+    private suspend fun releaseOrFail(treeUri: String) {
+        check(grantManager.releaseGrant(treeUri) == GrantReleaseResult.Released) {
+            "Folder grant cleanup is incomplete"
         }
     }
 
@@ -330,4 +461,11 @@ class RoomFolderMappingRepository(
     }
 
     private fun Int.hasFlag(flag: Int): Boolean = this and flag == flag
+
+    private fun PendingFolderOperationEntity.isExpired(nowEpochMs: Long): Boolean =
+        nowEpochMs > createdAtEpochMs && nowEpochMs - createdAtEpochMs > PENDING_TIMEOUT_MS
+
+    private companion object {
+        const val PENDING_TIMEOUT_MS = 24L * 60L * 60L * 1_000L
+    }
 }
