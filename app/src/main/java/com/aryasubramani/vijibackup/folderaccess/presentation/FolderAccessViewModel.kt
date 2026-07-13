@@ -51,6 +51,7 @@ class FolderAccessViewModel(
     private val pickerLaunchChannel = Channel<FolderPickerLaunch>(Channel.BUFFERED)
     private var beginOperation: Job? = null
     private var removeOperation: Job? = null
+    private var removeOperationGeneration = 0L
     private var mappingObservation: Job? = null
     private var isActive = false
 
@@ -68,8 +69,10 @@ class FolderAccessViewModel(
         isActive = false
         beginOperation?.cancel()
         beginOperation = null
+        removeOperationGeneration += 1
         removeOperation?.cancel()
         removeOperation = null
+        mutableUiState.update { state -> state.copy(removingMappingId = null) }
         mappingObservation?.cancel()
         mappingObservation = null
     }
@@ -90,6 +93,7 @@ class FolderAccessViewModel(
         ) {
             return
         }
+        val operationGeneration = ++removeOperationGeneration
         removeOperation = viewModelScope.launch {
             mutableUiState.update { state ->
                 state.copy(
@@ -105,10 +109,14 @@ class FolderAccessViewModel(
                 } catch (_: Exception) {
                     RemoveFolderResult.StorageFailure
                 }
-                mutableUiState.update { state -> state.copy(notice = result.notice()) }
+                if (operationGeneration == removeOperationGeneration) {
+                    mutableUiState.update { state -> state.copy(notice = result.notice()) }
+                }
             } finally {
-                mutableUiState.update { state -> state.copy(removingMappingId = null) }
-                removeOperation = null
+                if (operationGeneration == removeOperationGeneration) {
+                    mutableUiState.update { state -> state.copy(removingMappingId = null) }
+                    removeOperation = null
+                }
             }
         }
     }
