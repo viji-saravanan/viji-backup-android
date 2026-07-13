@@ -17,6 +17,8 @@ import com.aryasubramani.vijibackup.folderaccess.saf.AcquireReadGrantResult
 import com.aryasubramani.vijibackup.folderaccess.saf.GrantReleaseResult
 import com.aryasubramani.vijibackup.folderaccess.saf.LocalFolderGrantManager
 import com.aryasubramani.vijibackup.folderaccess.saf.PersistedFolderGrant
+import com.aryasubramani.vijibackup.folderaccess.saf.WriteGrantRemovalResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -312,6 +314,167 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         assertEquals(listOf(treeUri), grants.releaseCalls)
     }
 
+    @Test
+    fun abandoningCleanupFailureBlocksInitializationAndRetries() = runTest {
+        val treeUri = "content://provider.test/tree/abandoning"
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+        )
+        assertEquals(1, database.folderAccessDao().markPendingAbandoning("pending-token"))
+        grants.persisted = listOf(readGrant(treeUri))
+        grants.releaseResult = GrantReleaseResult.Failed
+
+        assertEquals(BeginFolderPickerResult.StorageFailure, repository.beginAdd())
+        assertEquals(
+            PendingFolderOperationState.Abandoning,
+            database.folderAccessDao().pendingOperation()?.state,
+        )
+
+        grants.releaseResult = GrantReleaseResult.Released
+        assertTrue(repository.beginAdd() is BeginFolderPickerResult.Started)
+        assertEquals(listOf(treeUri, treeUri), grants.releaseCalls)
+    }
+
+    @Test
+    fun orphanCleanupFailureKeepsBarrierClosedUntilRetrySucceeds() = runTest {
+        val treeUri = "content://provider.test/tree/orphan"
+        grants.persisted = listOf(readGrant(treeUri))
+        grants.releaseResult = GrantReleaseResult.Failed
+
+        assertEquals(BeginFolderPickerResult.StorageFailure, repository.beginAdd())
+
+        grants.releaseResult = GrantReleaseResult.Released
+        assertTrue(repository.beginAdd() is BeginFolderPickerResult.Started)
+        assertEquals(listOf(treeUri, treeUri), grants.releaseCalls)
+        assertEquals(2, grants.persistedGrantReads)
+    }
+
+    @Test
+    fun mappedGrantIsRetainedWhileOnlyUnreferencedGrantIsReleased() = runTest {
+        val mappedTreeUri = "content://provider.test/tree/mapped"
+        val orphanTreeUri = "content://provider.test/tree/orphan"
+        database.folderAccessDao().insertMapping(mapping("existing-mapping", mappedTreeUri))
+        grants.persisted = listOf(readGrant(mappedTreeUri), readGrant(orphanTreeUri))
+
+        repository.observeMappings().first()
+
+        assertEquals(listOf(orphanTreeUri), grants.releaseCalls)
+        assertEquals(mappedTreeUri, database.folderAccessDao().mappingById("existing-mapping")?.treeUri)
+    }
+
+    @Test
+    fun persistedWriteAccessIsRemovedBeforeRecoveredSelectionCommits() = runTest {
+        val treeUri = "content://provider.test/tree/legacy-write"
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+        )
+        grants.persisted = listOf(
+            PersistedFolderGrant(
+                treeUri = treeUri,
+                hasReadAccess = true,
+                hasWriteAccess = true,
+            ),
+        )
+        repository = RoomFolderMappingRepository(
+            dao = database.folderAccessDao(),
+            grantManager = grants,
+            ioDispatcher = Dispatchers.IO,
+            requestTokenFactory = { requestTokens.removeFirst() },
+            mappingIdFactory = {
+                grants.events += "commit"
+                mappingIds.removeFirst()
+            },
+            clock = { NOW_EPOCH_MS },
+        )
+
+        repository.observeMappings().first()
+
+        assertEquals(listOf(treeUri), grants.writeRemovalCalls)
+        assertTrue(grants.events.indexOf("remove-write") < grants.events.indexOf("commit"))
+        assertEquals(treeUri, database.folderAccessDao().mappingById("mapping-a")?.treeUri)
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun writeAccessCleanupFailureKeepsInitializationRetryable() = runTest {
+        val treeUri = "content://provider.test/tree/write-cleanup-failure"
+        database.folderAccessDao().insertMapping(mapping("existing-mapping", treeUri))
+        grants.persisted = listOf(
+            PersistedFolderGrant(treeUri, hasReadAccess = true, hasWriteAccess = true),
+        )
+        grants.writeRemovalResult = WriteGrantRemovalResult.Failed
+
+        assertEquals(BeginFolderPickerResult.StorageFailure, repository.beginAdd())
+
+        grants.writeRemovalResult = WriteGrantRemovalResult.ReadOnlyConfirmed
+        assertTrue(repository.beginAdd() is BeginFolderPickerResult.Started)
+        assertEquals(listOf(treeUri, treeUri), grants.writeRemovalCalls)
+    }
+
+    @Test
+    fun missingReadAfterWriteRemovalPreservesMappingWithoutOpeningGrant() = runTest {
+        val treeUri = "content://provider.test/tree/read-lost"
+        database.folderAccessDao().insertMapping(mapping("existing-mapping", treeUri))
+        grants.persisted = listOf(
+            PersistedFolderGrant(treeUri, hasReadAccess = true, hasWriteAccess = true),
+        )
+        grants.writeRemovalResult = WriteGrantRemovalResult.ReadAccessMissing
+
+        assertTrue(repository.beginAdd() is BeginFolderPickerResult.Started)
+
+        assertEquals(listOf(treeUri), grants.writeRemovalCalls)
+        assertEquals(treeUri, database.folderAccessDao().mappingById("existing-mapping")?.treeUri)
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun cancelledInitializationCanRetryWithoutRecreatingRepository() = runTest {
+        grants.persistedFailure = CancellationException("test cancellation")
+
+        assertInitializationCancelled { repository.beginAdd() }
+
+        grants.persistedFailure = null
+        assertTrue(repository.beginAdd() is BeginFolderPickerResult.Started)
+        assertEquals(2, grants.persistedGrantReads)
+    }
+
+    @Test
+    fun cancellationAfterRepairCommitRetriesOldGrantCleanup() = runTest {
+        val oldTreeUri = "content://provider.test/tree/cancel-old"
+        val replacementTreeUri = "content://provider.test/tree/cancel-new"
+        database.folderAccessDao().insertMapping(mapping("existing-mapping", oldTreeUri))
+        insertPending(
+            operation = PendingFolderOperationType.Repair,
+            targetMappingId = "existing-mapping",
+            selectedTreeUri = replacementTreeUri,
+        )
+        grants.persisted = listOf(readGrant(oldTreeUri), readGrant(replacementTreeUri))
+        grants.releaseFailure = CancellationException("test cancellation")
+
+        assertInitializationCancelled { repository.observeMappings().first() }
+        assertEquals(
+            replacementTreeUri,
+            database.folderAccessDao().mappingById("existing-mapping")?.treeUri,
+        )
+        assertNull(database.folderAccessDao().pendingOperation())
+
+        grants.releaseFailure = null
+        repository.observeMappings().first()
+        assertEquals(listOf(oldTreeUri, oldTreeUri), grants.releaseCalls)
+    }
+
+    private suspend fun assertInitializationCancelled(block: suspend () -> Any?) {
+        var cancellation: CancellationException? = null
+        try {
+            block()
+        } catch (error: CancellationException) {
+            cancellation = error
+        }
+        assertTrue("Expected initialization cancellation", cancellation != null)
+    }
+
     private suspend fun insertPending(
         operation: PendingFolderOperationType,
         targetMappingId: String? = null,
@@ -367,13 +530,19 @@ class RoomFolderMappingRepositoryInstrumentedTest {
 private class RecordingGrantManager : LocalFolderGrantManager {
     val acquireCalls = mutableListOf<FolderPickerSelection.Selected>()
     val releaseCalls = mutableListOf<String>()
+    val writeRemovalCalls = mutableListOf<String>()
+    val events = mutableListOf<String>()
     var acquireResult: AcquireReadGrantResult = AcquireReadGrantResult.Acquired
     var releaseResult: GrantReleaseResult = GrantReleaseResult.Released
+    var writeRemovalResult: WriteGrantRemovalResult = WriteGrantRemovalResult.ReadOnlyConfirmed
     var persisted: List<PersistedFolderGrant> = emptyList()
     var persistedGrantReads = 0
+    var persistedFailure: Throwable? = null
+    var releaseFailure: Throwable? = null
 
     override suspend fun persistedGrants(): List<PersistedFolderGrant> {
         persistedGrantReads += 1
+        persistedFailure?.let { throw it }
         return persisted
     }
 
@@ -385,8 +554,17 @@ private class RecordingGrantManager : LocalFolderGrantManager {
         return acquireResult
     }
 
+    override suspend fun removePersistedWriteAccess(
+        treeUri: String,
+    ): WriteGrantRemovalResult {
+        writeRemovalCalls += treeUri
+        events += "remove-write"
+        return writeRemovalResult
+    }
+
     override suspend fun releaseGrant(treeUri: String): GrantReleaseResult {
         releaseCalls += treeUri
+        releaseFailure?.let { throw it }
         return releaseResult
     }
 }

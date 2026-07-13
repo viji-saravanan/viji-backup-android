@@ -17,6 +17,12 @@ enum class GrantReleaseResult {
     Failed,
 }
 
+enum class WriteGrantRemovalResult {
+    ReadOnlyConfirmed,
+    ReadAccessMissing,
+    Failed,
+}
+
 interface LocalFolderGrantManager {
     suspend fun persistedGrants(): List<PersistedFolderGrant>
 
@@ -24,6 +30,8 @@ interface LocalFolderGrantManager {
         treeUri: String,
         grantedFlags: Int,
     ): AcquireReadGrantResult
+
+    suspend fun removePersistedWriteAccess(treeUri: String): WriteGrantRemovalResult
 
     suspend fun releaseGrant(treeUri: String): GrantReleaseResult
 }
