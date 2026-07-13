@@ -33,10 +33,10 @@ published as draft PR #2 from `feature/phase-2-auth-allowlist`, stacked on
 `setup/phase-1-foundation`.
 
 Phase 3 local folder access is active on
-`feature/phase-3-local-folder-selection`, stacked on the Phase 2 branch. Its
-implementation packet, architecture, failure matrix, security rules, source
-register, and physical-device acceptance matrix are committed. Production code
-has not yet been added on this branch.
+`feature/phase-3-local-folder-selection`, stacked on the Phase 2 branch and
+published as draft PR #4. Its implementation packet, architecture, failure
+matrix, security rules, source register, and physical-device acceptance matrix
+are committed alongside the implemented folder-selection slices.
 
 Implemented Phase 2 slices:
 
@@ -51,17 +51,35 @@ Implemented Phase 2 slices:
 - lifecycle-safe request dispatch with one-shot consumption and duplicate suppression;
 - application-scoped manual dependency container;
 - Compose auth gate, approved surface, progress, warnings, retry, and sign-out states;
-- foreground reauthentication after an approved app session backgrounds;
+- cold-process reauthentication with approval retained across Home, picker, and
+  activity recreation while the same approved process remains alive;
 - private build configuration loaded outside Git;
 - internal and public debug flavors that coexist on one device;
 - zero-secret GitHub source verification for unit, build, Android-test APK, and lint tasks;
 - fresh-laptop setup and repeatable test runbook.
 
+Implemented Phase 3 slices:
+
+- Room schema 1 for unique folder mappings and one durable picker-operation slot;
+- backup/transfer exclusion for the Room database and grant-dependent state;
+- read-only `ACTION_OPEN_DOCUMENT_TREE` contract with request-token correlation;
+- exact persisted-read-grant acquisition, legacy write-grant reduction, orphan
+  cleanup, cancellation propagation, and crash recovery;
+- approved-only folder observation, add, exact-duplicate rejection, and repair;
+- provider-derived root display names with existing-row backfill and safe generic
+  fallback labels when metadata is unavailable;
+- confirmed removal that revokes the grant before deleting the mapping, remains
+  retryable on grant or Room failure, and never deletes phone or Drive content;
+- compact Compose folder rows with named remove confirmation, progress, notices,
+  and disabled competing mutations;
+- process-scope auth regression coverage proving Home, picker round trips, and
+  activity recreation do not repeatedly invoke Google sign-in.
+
 Not yet implemented on the current Phase 3 branch:
 
-- Storage Access Framework folder selection and persisted read grants;
-- Room-backed folder mappings and pending picker recovery;
-- folder validation, metadata scan, cancellation, repair, and removal UI;
+- live root health classification and permission-loss repair state;
+- iterative metadata scan, scan progress, cancellation, and per-mapping isolation;
+- enable/disable controls and scan controls;
 - Google Drive authorization or destination access;
 - any selected-folder sync behavior;
 - release signing or APK publication.
@@ -193,15 +211,17 @@ proving a clean checkout reaches the intended fail-closed setup state.
 
 ## Immediate Goal
 
-Implement Phase 3 read-only local folder access without weakening Phase 2 auth
-or claiming that Android's local-only picker hint proves physical locality.
+Complete Phase 3 health and read-only metadata scanning without weakening the
+tested process-scope auth boundary or claiming that Android's local-only picker
+hint proves physical locality.
 
 Next sequence:
 
-- push the Phase 3 branch and open its draft PR against the Phase 2 branch;
-- add Room and picker state using red-green vertical slices;
-- implement read-only selection, validation, scan, cancellation, repair, and
-  removal without mutating source content;
+- finish live backfill acceptance for the two existing real mappings;
+- record one explicitly chosen live removal/re-add case without touching the
+  other mapping;
+- implement health, read-only scan, cancellation, and per-mapping isolation in
+  red-green vertical slices without mutating source content;
 - run the full automated regression and every physical Samsung
   `FOLDER-LIVE-*` acceptance case;
 - keep configured APKs and raw live evidence out of public CI and Git;

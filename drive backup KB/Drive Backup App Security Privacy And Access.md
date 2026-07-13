@@ -58,9 +58,10 @@ for private flavor/OAuth testing but is not a distributable public artifact.
 Phase 2 persists the stable Google subject with normalized email metadata but
 evaluates the local product gate by email because only addresses are configured.
 Address reassignment is therefore a tracked identity-transfer risk. Cached
-metadata never unlocks the app by itself, and an approved process relocks when
-the app backgrounds. Future Drive work must still recheck current authorization
-before every protected operation.
+metadata never unlocks a cold process by itself. After explicit approval, the
+same running process retains approval across Home, DocumentsUI, and activity
+recreation; a new process starts at `ReauthenticationRequired`. Future Drive
+work must still recheck current authorization before every protected operation.
 
 For the current personal-use installation, every configured approved account is
 an explicit co-administrator of local folder mappings on that installation.
@@ -86,11 +87,17 @@ Future version can support a remotely fetched allowlist only if:
 
 ## Local Folder Access
 
-Phase 3 uses Android's Storage Access Framework and takes only the persistent
-read grant returned by the system folder picker. It must never request or retain
-a write grant, broad storage permission, all-files access, or a grant for a URI
-that is not referenced by either a completed mapping or the durable in-flight
-selection record.
+The current Phase 3 source type uses Android's Storage Access Framework and takes
+only the persistent read grant returned by the system folder picker. It never
+requests or retains a write grant, broad storage permission, all-files access,
+or a grant for a URI that is not referenced by either a completed mapping or the
+durable in-flight selection record.
+
+Android 11 and newer intentionally prevent this picker from granting the exact
+Downloads root. Supporting that root would require a separate, explicit
+all-files-access source type, direct-path or MediaStore traversal, a system
+settings consent flow, and a larger security/test matrix. Do not silently add
+`MANAGE_EXTERNAL_STORAGE`; this remains a product decision.
 
 `Intent.EXTRA_LOCAL_ONLY` is a provider-filtering request, not proof that the
 returned tree is physically stored on the phone. Treat provider authority,
@@ -102,6 +109,8 @@ That database is excluded from Android backup and device transfer because a
 restored URI without the matching framework grant is misleading and unsafe.
 Every add, repair, and removal path must compensate across the non-atomic Room
 and URI-grant operations, and must never delete or modify source content.
+Removal releases and verifies the exact grant before deleting its mapping. If
+release or storage deletion fails, the mapping remains visible and retryable.
 
 Local folder labels, tree URIs, document IDs, provider authorities, and scanned
 filenames must not be written to application logs, crash messages, analytics,
@@ -113,7 +122,8 @@ user-selected email report and protected in-app history.
 Disable recent-task screenshots whenever protected folder content can be shown:
 use `Activity.setRecentsScreenshotEnabled(false)` on API 33 and newer and
 `FLAG_SECURE` on older supported versions. This protection is separate from
-normal foreground authentication and does not relax the relock policy.
+process-scope foreground authentication and does not change cold-process
+reauthentication.
 
 ## Email Privacy
 

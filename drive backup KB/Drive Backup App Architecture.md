@@ -19,7 +19,7 @@ The app is a native Android app. The app has no paid backend in MVP. It talks di
 
 | Component | Responsibility |
 |---|---|
-| Auth and Allowlist | Credential Manager sign-in, stable subject/email extraction, local gate, foreground reauthentication, sign-out |
+| Auth and Allowlist | Credential Manager sign-in, stable subject/email extraction, process-scope local gate, cold-process reauthentication, sign-out |
 | Folder Access | Android folder picker, persisted URI permissions, permission repair |
 | Drive Destination | Shared folder connection, Drive folder ID storage, destination health checks |
 | Sync Planner | Compare local folder state with local ledger and Drive state |
@@ -49,6 +49,11 @@ The app should store stable Drive file IDs for folders and files when available.
 ## Android Folder Access Model
 
 Use Android's folder picker for local folders. The app only supports folders that Android allows the user to grant. If Android blocks a folder, the app must explain that the folder cannot be backed up directly.
+
+On Android 11 and newer, the SAF picker blocks the exact Downloads root even
+though it can allow a user-created subfolder beneath Downloads. A future full
+Downloads source requires a separately approved all-files-access adapter; it is
+not an extension of the existing SAF picker.
 
 The app should persist granted URI permissions and detect when a permission is lost, revoked, or no longer points to readable content.
 
