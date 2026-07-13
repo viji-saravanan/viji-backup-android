@@ -18,6 +18,7 @@ import com.aryasubramani.vijibackup.folderaccess.saf.AcquireReadGrantResult
 import com.aryasubramani.vijibackup.folderaccess.saf.GrantReleaseResult
 import com.aryasubramani.vijibackup.folderaccess.saf.LocalFolderGrantManager
 import com.aryasubramani.vijibackup.folderaccess.saf.PersistedFolderGrant
+import com.aryasubramani.vijibackup.folderaccess.saf.WriteGrantRemovalResult
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -316,7 +317,7 @@ class RoomFolderMappingRepository(
     private suspend fun reconcileLocked() {
         val pending = dao.pendingOperation()
         dao.allMappings()
-        val persistedGrants = grantManager.persistedGrants()
+        val persistedGrants = normalizePersistedGrants(grantManager.persistedGrants())
         val grantsByUri = persistedGrants.associateBy(PersistedFolderGrant::treeUri)
         val releasedUris = mutableSetOf<String>()
 
@@ -357,6 +358,30 @@ class RoomFolderMappingRepository(
             ) {
                 releaseOrFail(grant.treeUri)
                 releasedUris += grant.treeUri
+            }
+        }
+    }
+
+    private suspend fun normalizePersistedGrants(
+        persistedGrants: List<PersistedFolderGrant>,
+    ): List<PersistedFolderGrant> = buildList {
+        persistedGrants.forEach { grant ->
+            if (!grant.hasWriteAccess) {
+                add(grant)
+                return@forEach
+            }
+
+            when (grantManager.removePersistedWriteAccess(grant.treeUri)) {
+                WriteGrantRemovalResult.ReadOnlyConfirmed -> add(
+                    grant.copy(
+                        hasReadAccess = true,
+                        hasWriteAccess = false,
+                    ),
+                )
+                WriteGrantRemovalResult.ReadAccessMissing -> Unit
+                WriteGrantRemovalResult.Failed -> error(
+                    "Persisted write grant cleanup is incomplete",
+                )
             }
         }
     }
