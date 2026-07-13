@@ -33,6 +33,7 @@ internal fun FolderAccessContent(
     uiState: FolderAccessUiState,
     onAddFolder: () -> Unit,
     onRepairFolder: (String) -> Unit,
+    onRemoveFolder: (String) -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -178,6 +179,10 @@ internal object FolderAccessTestTags {
     const val Notice = "folder_access_notice"
     const val AddButton = "folder_access_add"
     const val MappingRow = "folder_access_mapping"
+    const val RemoveDialog = "folder_access_remove_dialog"
+    const val ConfirmRemove = "folder_access_remove_confirm"
+    const val CancelRemove = "folder_access_remove_cancel"
 
     fun repairButton(mappingId: String) = "folder_access_repair_$mappingId"
+    fun removeButton(mappingId: String) = "folder_access_remove_$mappingId"
 }

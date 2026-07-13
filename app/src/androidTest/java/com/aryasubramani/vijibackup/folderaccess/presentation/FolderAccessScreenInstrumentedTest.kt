@@ -85,6 +85,40 @@ class FolderAccessScreenInstrumentedTest {
     }
 
     @Test
+    fun removeRequiresNamedConfirmationBeforeForwardingExactMappingId() {
+        val removed = mutableListOf<String>()
+        val mapping = FolderMapping(
+            id = "mapping-a",
+            displayName = "Camera",
+            enabled = true,
+        )
+        composeRule.setFolderContent(
+            state = FolderAccessUiState(
+                mappings = listOf(mapping),
+                isLoading = false,
+            ),
+            onRemoveFolder = removed::add,
+        )
+
+        composeRule.onNodeWithTag(FolderAccessTestTags.removeButton(mapping.id))
+            .assertIsDisplayed()
+            .performClick()
+
+        composeRule.onNodeWithTag(FolderAccessTestTags.RemoveDialog).assertIsDisplayed()
+        composeRule.onNodeWithText(
+            appString(R.string.folder_access_remove_dialog_title, "Camera"),
+        ).assertIsDisplayed()
+        composeRule.onNodeWithText(
+            appString(R.string.folder_access_remove_dialog_message),
+        ).assertIsDisplayed()
+        assertTrue(removed.isEmpty())
+
+        composeRule.onNodeWithTag(FolderAccessTestTags.ConfirmRemove).performClick()
+
+        assertEquals(listOf(mapping.id), removed)
+    }
+
+    @Test
     fun everyOperationNoticeHasSpecificNonSensitiveText() {
         val state = mutableStateOf(
             FolderAccessUiState(isLoading = false, notice = FolderAccessNotice.PickerBusy),
@@ -104,11 +138,14 @@ class FolderAccessScreenInstrumentedTest {
             FolderAccessNotice.MappingMissing to R.string.folder_access_notice_mapping_missing,
             FolderAccessNotice.FolderAdded to R.string.folder_access_notice_added,
             FolderAccessNotice.FolderRepaired to R.string.folder_access_notice_repaired,
+            FolderAccessNotice.FolderRemoved to R.string.folder_access_notice_removed,
             FolderAccessNotice.SelectionExpired to R.string.folder_access_notice_expired,
             FolderAccessNotice.InvalidSelection to R.string.folder_access_notice_invalid,
             FolderAccessNotice.ReadPermissionMissing to R.string.folder_access_notice_read_missing,
             FolderAccessNotice.DuplicateFolder to R.string.folder_access_notice_duplicate,
             FolderAccessNotice.GrantFailure to R.string.folder_access_notice_grant_failure,
+            FolderAccessNotice.RemovalGrantFailure to
+                R.string.folder_access_notice_removal_grant_failure,
             FolderAccessNotice.StorageFailure to R.string.folder_access_notice_storage_failure,
             FolderAccessNotice.CleanupIncomplete to R.string.folder_access_notice_cleanup,
         )
@@ -128,6 +165,7 @@ class FolderAccessScreenInstrumentedTest {
         state: FolderAccessUiState,
         onAddFolder: () -> Unit = {},
         onRepairFolder: (String) -> Unit = {},
+        onRemoveFolder: (String) -> Unit = {},
     ) {
         setContent {
             VijiBackupTheme {
@@ -135,6 +173,7 @@ class FolderAccessScreenInstrumentedTest {
                     uiState = state,
                     onAddFolder = onAddFolder,
                     onRepairFolder = onRepairFolder,
+                    onRemoveFolder = onRemoveFolder,
                 )
             }
         }

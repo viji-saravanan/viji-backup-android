@@ -35,6 +35,11 @@
     <string name="folder_access_included">Included</string>
     <string name="folder_access_paused">Paused</string>
     <string name="folder_access_repair">Repair</string>
+    <string name="folder_access_remove">Remove</string>
+    <string name="folder_access_remove_dialog_title">Remove %1$s?</string>
+    <string name="folder_access_remove_dialog_message">Removing this folder stops its backup and revokes app access. Files on this phone and in Google Drive will not be deleted.</string>
+    <string name="folder_access_remove_confirm">Remove folder</string>
+    <string name="folder_access_remove_cancel">Cancel</string>
     <string name="folder_access_notice_busy">Finish the current folder selection first.</string>
     <string name="folder_access_notice_mapping_missing">That folder entry is no longer available.</string>
     <string name="folder_access_notice_added">Folder added.</string>
