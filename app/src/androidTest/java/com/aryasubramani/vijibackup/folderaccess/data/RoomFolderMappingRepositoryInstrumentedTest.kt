@@ -5,7 +5,10 @@ import android.content.Intent
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.aryasubramani.vijibackup.folderaccess.data.db.LocalFolderMappingEntity
+import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationEntity
 import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationState
+import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationType
 import com.aryasubramani.vijibackup.folderaccess.data.db.VijiBackupDatabase
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
@@ -49,7 +52,7 @@ class RoomFolderMappingRepositoryInstrumentedTest {
             ioDispatcher = Dispatchers.IO,
             requestTokenFactory = { requestTokens.removeFirst() },
             mappingIdFactory = { mappingIds.removeFirst() },
-            clock = { 1_000L },
+            clock = { NOW_EPOCH_MS },
         )
     }
 
@@ -197,6 +200,155 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         assertEquals(listOf(treeUri), grants.releaseCalls)
     }
 
+    @Test
+    fun requestedOperationAtExpiryBoundaryRemainsPending() = runTest {
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            createdAtEpochMs = NOW_EPOCH_MS - PENDING_TIMEOUT_MS,
+        )
+
+        assertEquals(BeginFolderPickerResult.Busy, repository.beginAdd())
+        assertEquals("pending-token", database.folderAccessDao().pendingOperation()?.requestToken)
+        assertEquals(1, grants.persistedGrantReads)
+    }
+
+    @Test
+    fun requestedOperationOlderThanExpiryIsRemovedBeforeNewWork() = runTest {
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            createdAtEpochMs = NOW_EPOCH_MS - PENDING_TIMEOUT_MS - 1L,
+        )
+
+        assertTrue(repository.beginAdd() is BeginFolderPickerResult.Started)
+        assertEquals("request-a", database.folderAccessDao().pendingOperation()?.requestToken)
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun stagedSelectionWithoutPersistedGrantIsAbandonedBeforeNewWork() = runTest {
+        val treeUri = "content://provider.test/tree/not-persisted"
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+        )
+
+        assertTrue(repository.beginAdd() is BeginFolderPickerResult.Started)
+        assertEquals("request-a", database.folderAccessDao().pendingOperation()?.requestToken)
+        assertTrue(database.folderAccessDao().observeMappings().first().isEmpty())
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun stagedAddWithPersistedReadGrantIsCommittedDuringInitialization() = runTest {
+        val treeUri = "content://provider.test/tree/recover-add"
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+
+        val mappings = repository.observeMappings().first()
+
+        assertEquals(listOf("mapping-a"), mappings.map { it.id })
+        assertEquals(treeUri, database.folderAccessDao().mappingById("mapping-a")?.treeUri)
+        assertNull(database.folderAccessDao().pendingOperation())
+        assertTrue(grants.acquireCalls.isEmpty())
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun stagedRepairWithPersistedReadGrantCommitsThenReleasesOldOrphan() = runTest {
+        val oldTreeUri = "content://provider.test/tree/repair-old"
+        val replacementTreeUri = "content://provider.test/tree/repair-new"
+        database.folderAccessDao().insertMapping(mapping("existing-mapping", oldTreeUri))
+        insertPending(
+            operation = PendingFolderOperationType.Repair,
+            targetMappingId = "existing-mapping",
+            selectedTreeUri = replacementTreeUri,
+        )
+        grants.persisted = listOf(readGrant(oldTreeUri), readGrant(replacementTreeUri))
+
+        repository.observeMappings().first()
+
+        assertEquals(
+            replacementTreeUri,
+            database.folderAccessDao().mappingById("existing-mapping")?.treeUri,
+        )
+        assertNull(database.folderAccessDao().pendingOperation())
+        assertEquals(listOf(oldTreeUri), grants.releaseCalls)
+    }
+
+    @Test
+    fun stagedSameUriRepairNeverReleasesReferencedGrant() = runTest {
+        val treeUri = "content://provider.test/tree/repair-same"
+        database.folderAccessDao().insertMapping(mapping("existing-mapping", treeUri))
+        insertPending(
+            operation = PendingFolderOperationType.Repair,
+            targetMappingId = "existing-mapping",
+            selectedTreeUri = treeUri,
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+
+        repository.observeMappings().first()
+
+        assertEquals(treeUri, database.folderAccessDao().mappingById("existing-mapping")?.treeUri)
+        assertNull(database.folderAccessDao().pendingOperation())
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun expiredStagedSelectionIsReleasedInsteadOfResumed() = runTest {
+        val treeUri = "content://provider.test/tree/expired-selection"
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+            createdAtEpochMs = NOW_EPOCH_MS - PENDING_TIMEOUT_MS - 1L,
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+
+        assertTrue(repository.beginAdd() is BeginFolderPickerResult.Started)
+
+        assertTrue(database.folderAccessDao().observeMappings().first().isEmpty())
+        assertEquals(listOf(treeUri), grants.releaseCalls)
+    }
+
+    private suspend fun insertPending(
+        operation: PendingFolderOperationType,
+        targetMappingId: String? = null,
+        selectedTreeUri: String? = null,
+        createdAtEpochMs: Long = NOW_EPOCH_MS,
+    ) {
+        val dao = database.folderAccessDao()
+        assertTrue(
+            dao.tryBeginPendingOperation(
+                PendingFolderOperationEntity(
+                    requestToken = "pending-token",
+                    operation = operation,
+                    targetMappingId = targetMappingId,
+                    selectedTreeUri = null,
+                    state = PendingFolderOperationState.Requested,
+                    createdAtEpochMs = createdAtEpochMs,
+                ),
+            ),
+        )
+        if (selectedTreeUri != null) {
+            assertEquals(1, dao.markSelectionReceived("pending-token", selectedTreeUri))
+        }
+    }
+
+    private fun mapping(id: String, treeUri: String) = LocalFolderMappingEntity(
+        id = id,
+        treeUri = treeUri,
+        sourceDisplayName = "Test folder",
+        enabled = true,
+    )
+
+    private fun readGrant(treeUri: String) = PersistedFolderGrant(
+        treeUri = treeUri,
+        hasReadAccess = true,
+        hasWriteAccess = false,
+    )
+
     private fun selected(treeUri: String) = FolderPickerSelection.Selected(
         treeUri = treeUri,
         grantedFlags =
@@ -207,6 +359,8 @@ class RoomFolderMappingRepositoryInstrumentedTest {
 
     private companion object {
         const val TEST_DATABASE_NAME = "folder_mapping_repository_test.db"
+        const val PENDING_TIMEOUT_MS = 24L * 60L * 60L * 1_000L
+        const val NOW_EPOCH_MS = PENDING_TIMEOUT_MS * 2L
     }
 }
 
@@ -215,8 +369,13 @@ private class RecordingGrantManager : LocalFolderGrantManager {
     val releaseCalls = mutableListOf<String>()
     var acquireResult: AcquireReadGrantResult = AcquireReadGrantResult.Acquired
     var releaseResult: GrantReleaseResult = GrantReleaseResult.Released
+    var persisted: List<PersistedFolderGrant> = emptyList()
+    var persistedGrantReads = 0
 
-    override suspend fun persistedGrants(): List<PersistedFolderGrant> = emptyList()
+    override suspend fun persistedGrants(): List<PersistedFolderGrant> {
+        persistedGrantReads += 1
+        return persisted
+    }
 
     override suspend fun acquireReadGrant(
         treeUri: String,
