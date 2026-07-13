@@ -255,6 +255,9 @@ Focused evidence current on 2026-07-13:
   in-flight progress, disabled competing actions, and non-sensitive notices;
 - the app-composition lifecycle case proves one explicit sign-in and one
   long-lived folder observer across Home/resume and activity recreation;
+- the ViewModel coroutine-race case proves that a cancelled removal completing
+  late cannot clear progress, admit a third mutation, or publish state over a
+  newer removal;
 - the redacted live probe confirms 2 production mappings, 2 persisted tree
   grants, 0 write grants, and no pending picker operation;
 - before the first approved launch containing the metadata reader, the redacted

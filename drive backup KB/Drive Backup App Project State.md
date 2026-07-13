@@ -70,6 +70,8 @@ Implemented Phase 3 slices:
   fallback labels when metadata is unavailable;
 - confirmed removal that revokes the grant before deleting the mapping, remains
   retryable on grant or Room failure, and never deletes phone or Drive content;
+- generation-owned removal presentation that prevents a cancelled older
+  operation from clearing progress or publishing an outcome for a newer one;
 - compact Compose folder rows with named remove confirmation, progress, notices,
   and disabled competing mutations;
 - process-scope auth regression coverage proving Home, picker round trips, and
