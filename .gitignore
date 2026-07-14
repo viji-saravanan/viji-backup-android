@@ -1,0 +1,30 @@
+*.iml
+.gradle
+/local.properties
+/private.properties
+/.idea
+/.obsidian
+/drive backup KB/.obsidian
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Local secrets and downloaded credential bundles.
+.env
+.env.*
+!.env.example
+/secrets/
+*.jks
+*.keystore
+client_secret_*.json
+credentials*.json
+token*.json
