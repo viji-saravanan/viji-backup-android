@@ -113,6 +113,26 @@ Before every commit and push:
 
 Use Arya personal and Viji intentionally according to the commit attribution split above. Never commit or push from Arya work unless the user explicitly changes this rule.
 
+## Generated Gradle Wrapper Integrity
+
+Treat `gradlew`, `gradlew.bat`, `gradle-wrapper.jar`, and
+`gradle-wrapper.properties` as one generated change surface. Never hand-edit one
+launcher to answer a review finding.
+
+When the pinned Gradle version changes, or wrapper integrity is questioned:
+
+1. Run the wrapper task with the exact pinned version and distribution type,
+   then run it again through the refreshed wrapper.
+2. Verify a third identical invocation is up-to-date and produces no new diff.
+3. Compare the wrapper JAR SHA-256 with Gradle's official checksum for that
+   exact version.
+4. Run `sh -n gradlew`, `./gradlew --version`, and the full two-flavor source
+   verification gate.
+5. Commit all generated wrapper files together in an isolated build commit.
+
+If generated output differs from a review assumption, preserve the generated
+output and record the command, Gradle revision, checksum match, and test result.
+
 ## APK Channels
 
 Use two build flavors or release channels:
