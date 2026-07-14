@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-github-release-workflow
 status: active
-last_updated: 2026-07-12
+last_updated: 2026-07-14
 context_role: release-process
 read_when:
   - The agent works on GitHub setup, branches, commits, APKs, releases, or account switching.
@@ -54,6 +54,24 @@ Each commit should be buildable where practical. Do not mix unrelated features.
 - Never paste account addresses, cloud identifiers, device serials, raw logs, or
   private screenshots into a PR.
 - Keep the PR draft while required release evidence or its base PR remains incomplete.
+
+### Merging Stacked Pull Requests
+
+When the user authorizes integration, merge a phase stack from its oldest base
+to its newest head:
+
+1. Verify every PR is mergeable, its available checks pass, current review
+   feedback is resolved or explicitly dispositioned, and the local worktree is
+   clean.
+2. Mark the oldest PR ready, obtain the required independent approval, and use
+   a merge commit. Do not squash or rebase away sequential attribution.
+3. After the base merges, retarget only the next direct child to the integrated
+   branch. Recheck its diff, checks, approval, and mergeability before merging.
+4. Retarget sibling PRs independently after their shared base is integrated;
+   never collapse one sibling's scope into another merely to shorten the stack.
+5. Do not delete an ancestor branch until every descendant PR has been
+   retargeted. After the final merge, update local `main` by fast-forward and
+   verify PR states, checks, commit ancestry, contributor metadata, and privacy.
 
 ## Commit Attribution Split
 
