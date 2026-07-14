@@ -569,7 +569,7 @@ Before every commit and push:
 ```bash
 git status --short --branch
 git diff --check
-git check-ignore -v private.properties local.properties
+git check-ignore -v .env private.properties local.properties
 git grep -n -I -E 'GOCSPX-|client_secret|refresh_token|access_token'
 git grep -n -I -E '/Users/|[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 ```
@@ -582,12 +582,20 @@ Also verify ignored/generated files are not staged:
 
 ```bash
 git diff --cached --name-only
-git ls-files private.properties local.properties app/build build .gradle .idea
+git ls-files .env private.properties local.properties app/build build .gradle .idea
 ```
 
-The source repository is public. Treat every tracked commit, branch, workflow
-log, artifact, PR comment, and review excerpt as permanently public. Private
-build configuration and raw live-device evidence remain local and ignored.
+If the project owner has an ignored `.env`, treat it as an opaque temporary
+credential vault. Do not print, copy, source, upload, or expect that file on a
+contributor laptop. `private.properties` remains the only documented local
+Android build-configuration input.
+
+The source/review repository is public. Assume every tracked file, branch,
+commit, pull request, review excerpt, workflow log, and artifact can be read by
+anyone permanently. Keep private build configuration, generated logs, and raw
+live-device evidence outside Git, and publish no internal or configured test APK
+from this repository. A public APK still requires the documented privacy,
+signing, and release test gates.
 
 ## 17. Troubleshooting
 

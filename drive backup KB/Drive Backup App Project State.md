@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-project-state
 status: active
-last_updated: 2026-07-13
+last_updated: 2026-07-14
 context_role: current-state
 read_when:
   - The agent needs to understand the current local scaffold before implementation.
@@ -28,15 +28,12 @@ Knowledge base:
 
 ## Current Implementation
 
-Phase 1 foundation work is under review in PR #1. Phase 2 authentication work is
-published as draft PR #2 from `feature/phase-2-auth-allowlist`, stacked on
-`setup/phase-1-foundation`.
-
-Phase 3 local folder access is active on
-`feature/phase-3-local-folder-selection`, stacked on the Phase 2 branch and
-published as draft PR #4. Its implementation packet, architecture, failure
-matrix, security rules, source register, and physical-device acceptance matrix
-are committed alongside the implemented folder-selection slices.
+Phase 1 foundation, Phase 2 authentication, the public-source workflow, and the
+implemented Phase 3 local-folder slices are integrated on `main` through PRs
+#1-#4. Their implementation packets, architecture, failure matrix, security
+rules, source register, and physical-device acceptance matrix are committed
+alongside the code. Remaining Phase 3 health and scan work must begin from a new
+branch based on this integrated baseline.
 
 Implemented Phase 2 slices:
 
@@ -77,7 +74,7 @@ Implemented Phase 3 slices:
 - process-scope auth regression coverage proving Home, picker round trips, and
   activity recreation do not repeatedly invoke Google sign-in.
 
-Not yet implemented on the current Phase 3 branch:
+Not yet implemented after the integrated Phase 3 slices:
 
 - live root health classification and permission-loss repair state;
 - iterative metadata scan, scan progress, cancellation, and per-mapping isolation;
@@ -125,9 +122,8 @@ Email notification defaults:
 
 ## Current Gaps And Boundaries
 
-- Active development branch is `feature/phase-3-local-folder-selection`, based
-  on `feature/phase-2-auth-allowlist`.
-- PR #2 is intentionally draft and must not merge before PR #1.
+- Integrated development baseline is `main`. New implementation work must use a
+  dedicated branch and PR; do not push directly to `main`.
 - Git account switcher profiles are verified for `callmearya` and
   `viji-saravanan`; both commit with their GitHub-provided `noreply` identity.
 - Current workflow intentionally splits commits between Arya personal and Viji.
@@ -139,11 +135,19 @@ Email notification defaults:
 - Email-address allowlisting retains a subject-reassignment residual. Move to
   opaque Google subjects or a trusted verifier before claiming strong public
   authorization.
-- The source repository is public. Privacy cleanup and tracked-history review
-  preceded publication; every new commit, branch, workflow log, PR comment, and
-  artifact must now be treated as permanently public.
+- The source/review repository became public on 2026-07-13 after the completed
+  tracked-source and reachable-history privacy checks. Treat every branch, pull
+  request, review, and workflow log as public. Internal APKs and privately
+  configured artifacts still require a separate private release surface.
+- Existing sequential commit authorship is preserved on the public branches.
+  Stack integration uses merge commits rather than squashing so the default
+  branch retains each phase's contributor metadata and review boundary.
 - GitHub source CI intentionally receives no private values and must never upload
   privately configured debug APKs as artifacts.
+- The project owner currently keeps an ignored, mode-`0600` `.env` as a
+  temporary local vault for the three downloaded OAuth credential bundles and
+  related private configuration. It is not loaded by Gradle, not available to
+  contributors or CI, and not considered a disaster-recovery copy.
 - `validatePublicReleasePrivacy` blocks `publicRelease` whenever the email
   allowlist or Drive folder ID is populated. A configured `publicDebug` is a
   private test artifact and must not be distributed.
