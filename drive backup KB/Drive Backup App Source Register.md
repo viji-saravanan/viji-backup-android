@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-source-register
 status: active
-last_updated: 2026-07-08
+last_updated: 2026-07-12
 context_role: sources
 read_when:
   - The agent makes platform claims about Android, Google Drive, Gmail, Apps Script, GitHub, or security.
@@ -25,8 +25,23 @@ This register lists source-backed platform claims. Future agents must verify cur
 | Foreground service types | https://developer.android.com/about/versions/14/changes/fgs-types-required | 2026-07-08 | Long-running visible transfer behavior must account for foreground service type requirements if foreground services are used. |
 | Notification runtime permission | https://developer.android.com/develop/ui/compose/notifications/notification-permission | 2026-07-08 | Android notification permission affects user-visible progress and should be tested. |
 | Android app data backup | https://developer.android.com/identity/data/backup | 2026-07-08 | App's own settings backup must be considered carefully and must not include secrets. |
+| Android Studio installation | https://developer.android.com/studio/install | 2026-07-11 | A current supported Android Studio can build against a physical device without installing an emulator on a resource-constrained laptop. |
+| Java versions in Android builds | https://developer.android.com/build/jdks | 2026-07-11 | Keep the Android Studio Gradle JDK and terminal `JAVA_HOME` aligned; this project uses Java 17 compatibility. |
+| Android SDK environment variables | https://developer.android.com/tools/variables | 2026-07-11 | `ANDROID_HOME` identifies the SDK; SDK user state and AVD locations can be moved deliberately without copying another contributor's absolute paths. |
+| Physical Android device setup | https://developer.android.com/studio/run/device | 2026-07-11 | Enable USB debugging, accept the laptop RSA key, verify `adb devices`, and use real-device testing before release. |
+| AGP 9.2 compatibility | https://developer.android.com/build/releases/agp-9-2-0-release-notes | 2026-07-12 | AGP 9.2 supports through API 37 and documents Gradle 9.4.1 and JDK 17 as its baseline; Phase 2 remains on this tested tool pairing. |
+| Android 17 SDK and behavior changes | https://developer.android.com/about/versions/17/setup-sdk | 2026-07-12 | API 37 adoption changes the compile/target baseline and requires an explicit upgrade and compatibility test pass instead of an incidental auth-phase bump. |
 | AGP 9 built-in Kotlin | https://developer.android.com/build/migrate-to-built-in-kotlin | 2026-07-08 | AGP 9 enables built-in Kotlin support, so the app should not apply the old Kotlin Android plugin while built-in Kotlin is enabled. |
 | Jetpack Compose setup | https://developer.android.com/develop/ui/compose/setup-compose-dependencies-and-compiler | 2026-07-08 | Compose requires the Compose compiler Gradle plugin with Kotlin 2.x and Compose dependencies should use the Compose BOM. |
+| Compose v2 test migration | https://developer.android.com/develop/ui/compose/testing/migrate-v2 | 2026-07-11 | Compose v2 test rules use `StandardTestDispatcher`; explicitly synchronize queued composition work and use an explicit Android host when required. |
+| Credential Manager Sign in with Google overview | https://developer.android.com/identity/sign-in/credential-manager-siwg | 2026-07-11 | Use Credential Manager for Android authentication; Google Drive data access is a separate authorization action. |
+| Credential Manager Sign in with Google implementation | https://developer.android.com/identity/sign-in/credential-manager-siwg-implementation | 2026-07-11 | Implement an authorized-account auto-select path plus a persistent explicit chooser; both use a Web application OAuth client ID. |
+| Credential Manager sign-out | https://developer.android.com/reference/androidx/credentials/CredentialManager#clearCredentialState(androidx.credentials.ClearCredentialStateRequest) | 2026-07-10 | Explicit app sign-out should clear local app state and notify credential providers with `clearCredentialState`. |
+| Google ID token credential | https://developers.google.com/identity/android-credential-manager/android/reference/com/google/android/libraries/identity/googleid/GoogleIdTokenCredential | 2026-07-11 | Google ID library 1.2 exposes token-parsed email and stable Google account ID; raw ID tokens must not be persisted or logged. |
+| Google Identity Android release notes | https://developers.google.com/identity/android-credential-manager/releases | 2026-07-11 | Google ID library 1.2.0 distinguishes email from stable unique ID; tests must require both identity claims. |
+| Google Play services client authentication | https://developers.google.com/android/guides/client-auth | 2026-07-11 | Source builds on a different laptop normally have a different debug certificate SHA-1 and need matching Android OAuth client registration. |
+| Google ID token validation | https://developers.google.com/identity/gsi/web/guides/verify-google-id-token | 2026-07-10 | A relying-party server must validate token signature, audience, issuer, and expiry before treating an ID token as a server-side security identity. |
+| Google Android authorization client | https://developers.google.com/android/reference/com/google/android/gms/auth/api/identity/AuthorizationClient | 2026-07-10 | Request Google data scopes such as Drive separately from authentication and only when the feature needs them. |
 
 ## Google Drive Sources
 
@@ -56,6 +71,9 @@ This register lists source-backed platform claims. Future agents must verify cur
 |---|---|---:|---|
 | Repository visibility | https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/managing-repository-settings/setting-repository-visibility | 2026-07-08 | Public/private visibility is repository-level. |
 | Releases | https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases | 2026-07-08 | Anyone with read access to a repository can view releases. Use separate private/public release surfaces. |
+| Checkout action | https://github.com/actions/checkout | 2026-07-12 | Source CI uses the current v6 release pinned to an exact reviewed commit instead of a mutable branch. |
+| Setup Java action | https://github.com/actions/setup-java | 2026-07-12 | Source CI installs Temurin JDK 17 with the current v5 release pinned to an exact reviewed commit. |
+| Gradle setup action | https://github.com/gradle/actions/blob/main/docs/setup-gradle.md | 2026-07-12 | The official Gradle action configures wrapper execution and caching; CI pins the current v6 release to an exact reviewed commit. |
 
 ## Sync And Backup Practice Sources
 

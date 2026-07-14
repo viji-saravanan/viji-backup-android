@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-architecture
 status: draft
-last_updated: 2026-07-08
+last_updated: 2026-07-12
 context_role: architecture
 read_when:
   - The agent needs implementation boundaries, components, or platform constraints.
@@ -19,7 +19,7 @@ The app is a native Android app. The app has no paid backend in MVP. It talks di
 
 | Component | Responsibility |
 |---|---|
-| Auth and Allowlist | Google sign-in, email extraction, allowlist gate, sign-out |
+| Auth and Allowlist | Credential Manager sign-in, stable subject/email extraction, local gate, foreground reauthentication, sign-out |
 | Folder Access | Android folder picker, persisted URI permissions, permission repair |
 | Drive Destination | Shared folder connection, Drive folder ID storage, destination health checks |
 | Sync Planner | Compare local folder state with local ledger and Drive state |
@@ -38,7 +38,7 @@ Preferred Drive structure:
 
 ```text
 Arya Shared Backup Folder/
-  user@example.com/
+  <approved-user>/
     Device-Name-InstallId/
       Folder Mapping A/
       Folder Mapping B/
@@ -60,9 +60,10 @@ Do not promise exact periodic timing. WorkManager periodic execution is approxim
 
 ## Local State Model
 
-The local database should hold:
+Durable local state should hold:
 
-- account identity and allowlist status;
+- approved account metadata needed to request reauthentication, never a durable
+  assertion that the current session is authorized;
 - selected local folder mappings;
 - Drive destination folder IDs;
 - file ledger entries;
@@ -72,6 +73,11 @@ The local database should hold:
 - email notification state.
 
 The exact schema belongs in implementation planning, but the data must support idempotent sync, crash recovery, and diagnostics.
+
+Phase 2 uses a small application-scoped manual container and Preferences
+DataStore for account subject, normalized email, and optional display name.
+Cached metadata always enters `ReauthenticationRequired`; future workers must
+independently prove current Google/Drive authorization and cannot trust this metadata.
 
 ## Email Model
 
@@ -87,6 +93,9 @@ Preferred MVP option: Google Apps Script MailApp web app or another free adapter
 - No email credentials in source control.
 - No private GitHub token inside APK.
 - Signed APKs only.
+- The local allowlist is not authoritative authorization in a public or modified
+  APK; current Google authorization and Drive destination ACLs fail closed at
+  every protected operation.
 
 ## Known Platform Caveat
 

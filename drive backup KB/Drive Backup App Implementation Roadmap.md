@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-implementation-roadmap
 status: active
-last_updated: 2026-07-08
+last_updated: 2026-07-12
 context_role: roadmap
 read_when:
   - The agent needs sequencing, milestones, or implementation gates.
@@ -96,6 +96,10 @@ Exit gate:
 - The scaffold can be cleaned without re-arguing architecture in every later phase.
 
 ## Phase 2: Auth And Allowlist
+
+Status: implemented on `feature/phase-2-auth-allowlist`; final review and stacked
+PR integration are in progress. Release-only manual cases remain tracked in the
+Phase 2 plan and Testing Plan.
 
 Load:
 

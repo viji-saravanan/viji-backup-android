@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-testing-plan
 status: active
-last_updated: 2026-07-08
+last_updated: 2026-07-12
 context_role: testing
 read_when:
   - The agent writes, reviews, or plans tests.
@@ -148,6 +148,57 @@ Scenarios:
 - account removed from device after successful setup;
 - low storage condition where practical;
 - repeated cancellation and retry.
+
+Current physical baseline is Samsung Galaxy A23 (`SM-A236E`) on Android 14 / API
+34 and One UI 6.1. On 2026-07-12, both internal and public flavors completed 28
+instrumented tests with zero failures or errors. This device currently has about
+1.5 GB free, so it is valid low-storage evidence but is not suitable for large
+sync data sets until the owner frees space manually.
+
+Do not record device serials or account addresses. Label real approved accounts
+as A1-A4 and a deliberately excluded real account as B1 in test evidence.
+
+## Phase 2 Authentication Evidence
+
+Automated evidence current on 2026-07-12:
+
+- 59 JVM tests per flavor cover exact policy matching, locale normalization,
+  malformed configuration, session persistence ordering, stale callbacks,
+  duplicate sign-in/sign-out, cancellation, retry classification, foreground
+  relocking, restart-resumable provider cleanup, and lifecycle request dispatch;
+- 28 connected tests per flavor cover Credential Manager request construction
+  and result mapping, malformed credentials, cancellation and fatal propagation,
+  DataStore recreation/corruption/partial-state repair, Compose text/actions and
+  protected-content denial, application-container stability, and real
+  `MainActivity` fail-closed composition;
+- both app APKs and both Android-test APKs assemble;
+- both lint tasks pass with seven recorded version-currency warnings;
+- the full source workload passes with all private configuration forced blank,
+  which proves the clean-checkout `ConfigurationRequired` path;
+- GitHub source verification injects no private identifiers and uploads no APK artifact.
+
+Redacted live evidence:
+
+- A1-A4 reached approved state on the configured internal flavor;
+- B1 was blocked under a temporary local allowlist and normal configuration was restored;
+- backing out of Google UI recovered without cached approval;
+- A1 restart required fresh reauthentication before approval;
+- sign-out cleared the local session;
+- the user independently reported the configured live flow working;
+- an A1 process-only log scan found no fatal, raw-email, JWT-shaped, or
+  OAuth-client-ID-shaped matches.
+
+Release-only auth cases not yet claimed as complete:
+
+- public-flavor live Google sign-in and blocked-account flow;
+- physical removal of an approved Google account while the process survives;
+- unavailable or disabled Google Play services;
+- airplane mode during the provider flow;
+- rotation while Google provider UI is active;
+- TalkBack, switch access, and extreme font-scale review on a compact viewport.
+
+Use [[Drive Backup App Fresh Laptop Setup And Test Runbook]] for exact setup,
+commands, debug SHA registration, evidence privacy, and branch/PR rules.
 
 ## Data Set Matrix
 
