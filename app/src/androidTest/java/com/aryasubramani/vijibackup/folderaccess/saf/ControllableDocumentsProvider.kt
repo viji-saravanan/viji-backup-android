@@ -27,6 +27,11 @@ internal class ControllableDocumentsProvider : DocumentsProvider() {
     var cursorExtras: Bundle = Bundle.EMPTY
     var queryFailure: Throwable? = null
     var returnNullCursor = false
+    val childRowsByParent = mutableMapOf<String, List<TestDocumentRow>>()
+    val childReturnedColumnsByParent = mutableMapOf<String, Array<String>>()
+    val childExtrasByParent = mutableMapOf<String, Bundle>()
+    val childFailuresByParent = mutableMapOf<String, Throwable>()
+    val childNullCursorParents = mutableSetOf<String>()
 
     var queryCount = 0
         private set
@@ -44,6 +49,9 @@ internal class ControllableDocumentsProvider : DocumentsProvider() {
         private set
     var lastCursor: MatrixCursor? = null
         private set
+    val childParentDocumentIds = mutableListOf<String>()
+    val childProjections = mutableListOf<List<String>>()
+    val childCursors = mutableListOf<MatrixCursor>()
     override fun onCreate(): Boolean = true
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
@@ -87,10 +95,40 @@ internal class ControllableDocumentsProvider : DocumentsProvider() {
         parentDocumentId: String,
         projection: Array<out String>?,
         sortOrder: String?,
-    ): Cursor {
+    ): Cursor? {
         childQueryCount += 1
-        return MatrixCursor(projection?.map { it }?.toTypedArray() ?: DOCUMENT_PROJECTION)
+        childParentDocumentIds += parentDocumentId
+        childProjections += projection?.toList().orEmpty()
+        childFailuresByParent[parentDocumentId]?.let(::throwQueryFailure)
+        if (parentDocumentId in childNullCursorParents) return null
+
+        val columns = childReturnedColumnsByParent[parentDocumentId]
+            ?: projection?.map { it }?.toTypedArray()
+            ?: DOCUMENT_PROJECTION
+        return MatrixCursor(columns).also { cursor ->
+            childRowsByParent[parentDocumentId].orEmpty().forEach { row ->
+                cursor.addRow(
+                    columns.map { column ->
+                        when (column) {
+                            DocumentsContract.Document.COLUMN_DOCUMENT_ID -> row.documentId
+                            DocumentsContract.Document.COLUMN_DISPLAY_NAME -> row.displayName
+                            DocumentsContract.Document.COLUMN_MIME_TYPE -> row.mimeType
+                            DocumentsContract.Document.COLUMN_FLAGS -> row.flags
+                            DocumentsContract.Document.COLUMN_SIZE -> row.size
+                            DocumentsContract.Document.COLUMN_LAST_MODIFIED -> row.lastModified
+                            else -> null
+                        }
+                    },
+                )
+            }
+            cursor.extras = Bundle(childExtrasByParent[parentDocumentId] ?: Bundle.EMPTY)
+            childCursors += cursor
+        }
     }
+
+    override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean =
+        documentId == ROOT_DOCUMENT_ID ||
+            childRowsByParent.values.flatten().any { row -> row.documentId == documentId }
 
     override fun openDocument(
         documentId: String,
