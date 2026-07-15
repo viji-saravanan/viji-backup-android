@@ -188,6 +188,15 @@ Email notification defaults:
   automation is not a substitute for those release checks.
 - The physical test phone has about 1.5 GB free and is 99% used. Never delete
   user data automatically; treat low storage as an explicit test and operational risk.
+- The ordinary-user journey audit is tracked in [[Drive Backup App User Journey
+  Gap Audit]]. UX-01 is open: the current cold-process reauthentication chooser
+  appears on app relaunch and does not meet the intended standard user
+  experience. It is a Phase 2 follow-up and a prerequisite before Phase 4.
+- The same audit records the remaining user-facing gaps around mapping
+  identification, Downloads access, access-versus-backup health, preflight,
+  cancellation, partial results, scheduling explanations, recovery, and device
+  constraints. These are phase-owned gates, not reasons to change Phase 3 code
+  without a scoped implementation task.
 - Lint reports seven version-currency warnings. API 36.1, AGP 9.2.1, Gradle
   9.4.1, and the tested dependency set remain pinned for Phase 2. Android 17/API
   37 behavior adoption requires its own upgrade and device matrix instead of
@@ -326,5 +335,6 @@ Next sequence:
 - [[Drive Backup App GitHub And Release Workflow]]
 - [[Drive Backup App Testing Plan]]
 - [[Drive Backup App Context Packets]]
+- [[Drive Backup App User Journey Gap Audit]]
 - [[Drive Backup App Fresh Laptop Setup And Test Runbook]]
 - [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]]

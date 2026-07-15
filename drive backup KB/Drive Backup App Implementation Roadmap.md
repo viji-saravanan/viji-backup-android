@@ -97,8 +97,10 @@ Exit gate:
 
 ## Phase 2: Auth And Allowlist
 
-Status: integrated into `main` through PR #2. Release-only manual cases remain
-tracked in the Phase 2 plan and Testing Plan.
+Status: the implementation is integrated into `main` through PR #2. User-
+journey follow-ups remain open. In particular, the current cold-process
+reauthentication chooser does not meet the intended normal-user persistence
+behavior and is a prerequisite before Drive setup.
 
 Load:
 
@@ -117,6 +119,9 @@ Deliverables:
 Exit gate:
 
 - Approved account enters app; unapproved account cannot sync.
+- A returning user is not shown a Google account chooser on ordinary relaunch;
+  explicit sign-out, account removal, revoked access, or required security
+  reauthentication remains an exception.
 
 ## Phase 3: Local Folder Selection
 
@@ -145,6 +150,12 @@ Exit gate:
 - User-selected internal folder can be scanned after app restart.
 
 ## Phase 4: Downloads Source And Drive Destination Setup
+
+Entry prerequisites:
+
+- Phase 2 session persistence behavior is corrected and live-proven.
+- Current-account and explicit account-change behavior are defined.
+- Folder access health is visibly distinguished from backup health.
 
 Load:
 
