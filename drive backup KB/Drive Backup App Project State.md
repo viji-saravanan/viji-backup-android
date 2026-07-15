@@ -76,6 +76,7 @@ Implemented Phase 3 slices:
 
 Not yet implemented after the integrated Phase 3 slices:
 
+- pending-picker compensation ordered before app sign-out;
 - live root health classification and permission-loss repair state;
 - iterative metadata scan, scan progress, cancellation, and per-mapping isolation;
 - enable/disable controls and scan controls;

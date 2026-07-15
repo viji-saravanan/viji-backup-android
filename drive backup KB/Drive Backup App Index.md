@@ -44,6 +44,7 @@ Load only the packet that matches the task. Do not read all notes by default.
 | Any implementation or file edit | [[Drive Backup App Engineering Change Discipline]], then the packet for the touched feature |
 | Google sign-in, allowlist, or sign-out | [[Drive Backup App Phase 2 Auth Implementation Plan]], [[Drive Backup App Security Privacy And Access]], [[Drive Backup App Testing Plan]], [[Drive Backup App Source Register]] |
 | Local folder picker, SAF grant, mapping, repair, or scan | [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]], [[Drive Backup App Failure Matrix]], [[Drive Backup App Testing Plan]], [[Drive Backup App Source Register]] |
+| Current Phase 3 health, scanner, controls, or closure execution | [[Drive Backup App Phase 3 Completion Execution Plan]], [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]], [[Drive Backup App Project State]], [[Drive Backup App Testing Plan]] |
 | Standard-practice gap assessment | [[Drive Backup App Standard Practice Assessment]], [[Drive Backup App Product Requirements]], [[Drive Backup App Open Questions And Assumptions]], [[Drive Backup App Source Register]] |
 | Architecture or implementation planning | [[Drive Backup App Architecture]], [[Drive Backup App Sync Semantics]], [[Drive Backup App Failure Matrix]], [[Drive Backup App Security Privacy And Access]] |
 | Android storage, background sync, or permissions | [[Drive Backup App Architecture]], [[Drive Backup App Sync Semantics]], [[Drive Backup App Source Register]] |
@@ -74,6 +75,7 @@ Do not infer Android, Google Drive, Gmail, Apps Script, or GitHub behavior from 
 - [[Drive Backup App Project State]]
 - [[Drive Backup App Phase 2 Auth Implementation Plan]]
 - [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]]
+- [[Drive Backup App Phase 3 Completion Execution Plan]]
 - [[Drive Backup App Android Engineering Research]]
 - [[Drive Backup App Strategy]]
 - [[Drive Backup App Standard Practice Assessment]]

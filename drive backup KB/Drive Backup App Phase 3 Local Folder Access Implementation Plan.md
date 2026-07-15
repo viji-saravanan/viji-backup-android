@@ -732,8 +732,9 @@ and UI states that consume the changed contract.
 
 ## Branch, Commit, And Review Contract
 
-- Branch: `feature/phase-3-local-folder-selection`.
-- Base: `feature/phase-2-auth-allowlist` until the stacked PRs are integrated.
+- Branch: `feature/phase-3-folder-health-scan` for the remaining completion work.
+- Base: integrated `main` after PRs #1-#4. The earlier stacked Phase 3 branch is
+  merged and must not be reused for new completion commits.
 - Keep planning, persistence, SAF adapter, scanner, presentation, tests, live
   evidence, and KB closure in separate logical commits.
 - Use the GitHub account switcher before every commit and every push.
@@ -741,10 +742,12 @@ and UI states that consume the changed contract.
   boundaries permit.
 - Never push `.env`, `private.properties`, OAuth JSON, tokens, raw account data,
   device serials, raw SAF URIs, or live filenames.
-- Open a draft stacked PR as soon as the first coherent Phase 3 slice is pushed.
+- Open a draft PR from the completion branch as soon as the first coherent
+  remaining Phase 3 slice is pushed.
 - Add a comprehensive PR comment after each push with tests run, live cases run,
   known gaps, and next slice.
-- Do not merge Phase 3 before its base PRs and required review are resolved.
+- Do not merge the completion branch before required review and the Phase 3 exit
+  gate are resolved.
 
 ## Exit Gate
 

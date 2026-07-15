@@ -1,0 +1,470 @@
+---
+doc_id: drive-backup-app-phase-3-completion-execution-plan
+status: active
+last_updated: 2026-07-15
+context_role: execution-plan
+artifact_contract: superpowers-implementation-plan/v1
+artifact_readiness: implementation-ready
+execution: code
+execution_status: implementing
+read_when:
+  - The agent completes, reviews, or tests Phase 3 folder health, metadata scanning, enablement, or sign-out compensation.
+  - The agent needs the current branch, task order, test commands, or live Samsung acceptance sequence for Phase 3 closure.
+do_not_read_when:
+  - The task is Google Drive authorization, upload, scheduling, email, or release packaging.
+---
+
+# Drive Backup App Phase 3 Completion Execution Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: use
+> `superpowers:subagent-driven-development` or `superpowers:executing-plans`.
+> Every production behavior follows a witnessed red-green-refactor cycle.
+
+## Goal
+
+Finish the remaining Phase 3 local-folder boundary: pending-picker sign-out
+compensation, live access health, enable/disable, iterative read-only metadata
+scanning, per-mapping progress and cancellation, hostile-provider coverage, and
+physical Samsung restart/upgrade evidence.
+
+The authoritative product and platform contract remains
+[[Drive Backup App Phase 3 Local Folder Access Implementation Plan]]. This note
+is the smaller current execution packet. When the two disagree, stop and fix
+the documentation before changing code.
+
+## Architecture
+
+Keep Room schema 1 unchanged. Durable `FolderMapping` configuration remains in
+Room; `Folder Access Health` is derived from the exact persisted read grant and
+a live root query; `Metadata Scan` state lives in `FolderAccessViewModel` for the
+current process only. The repository hides raw tree URIs, coordinates pending
+operation compensation, and gives presentation a validated cold scan stream.
+
+Provider I/O remains behind focused SAF adapters on an injected IO dispatcher.
+The scanner uses iterative `DocumentsContract` child queries, opaque document
+IDs, one fresh `CancellationSignal` per query, deterministic cursor closure,
+and aggregate counters only. It never opens file content or calls create,
+rename, move, delete, output-stream, or write APIs.
+
+## Tech Stack
+
+- Kotlin, coroutines, Flow, and `viewModelScope`
+- Android `ContentResolver`, `DocumentsContract`, and `CancellationSignal`
+- Room 2.8.4 schema 1 with no migration in this plan
+- Jetpack Compose Material 3
+- JUnit 4, kotlinx-coroutines-test, AndroidX instrumented tests, and a test-only
+  controllable `DocumentsProvider`
+- Samsung Galaxy A23 on Android 14/API 34, wired ADB, Android user 0
+
+## Global Constraints
+
+- Work from `feature/phase-3-folder-health-scan`, based on integrated `main`.
+- Do not add Google Drive, upload, WorkManager, email, encryption, or release
+  behavior.
+- Do not add broad storage or media permissions. Exact Downloads-root support
+  remains outside the SAF source.
+- Never persist health or scan state. Never expose raw URI, document ID,
+  filename, account subject, token, OAuth identifier, or exception payload.
+- Keep internal and public flavors behaviorally equivalent and independently
+  testable.
+- Use the GitHub account switcher before every commit and push. Alternate Arya
+  and Viji commits at coherent boundaries; the controller owns commits.
+- Automated providers support hostile-path tests but never satisfy a live
+  `FOLDER-LIVE-*` gate.
+- Never touch Android user 150. Direct physical instrumentation targets Android
+  user 0 explicitly.
+
+## Acceptance Gate
+
+Phase 3 can close only after all of these are evidenced:
+
+- every mapping independently reaches one of `Ready`, `PermissionMissing`,
+  `TreeMissing`, `ProviderAuthRequired`, or `TemporarilyUnavailable` after
+  `Checking`;
+- enabled configuration, health, and scan state stay orthogonal;
+- an approved user can add, list, enable/disable, repair, scan/cancel, and
+  remove mappings, while non-approved states expose no folder metadata;
+- scan counts folders, files, known bytes, unknown-size files, unreadable
+  entries, and elapsed time without source mutation;
+- empty, nested, deep, duplicate/repeated ID, null metadata, malformed row, null
+  cursor, loading/error extra, provider exception, cancellation, and isolated
+  multi-mapping behavior have deterministic coverage;
+- a sign-out started with pending picker work marks/cleans that work before auth
+  state is cleared, and cleanup failure stays retryable without blocking sign-out;
+- force-stop/relaunch and in-place APK upgrade preserve a real mapping and allow
+  a complete nested scan without reopening the picker;
+- real grant release preserves the mapping and reaches `PermissionMissing`;
+- one intentionally broken dedicated mapping does not block a healthy real
+  mapping;
+- recent-apps protection remains enabled and mutation-sentinel manifests are
+  unchanged;
+- both-flavor unit, build, Android-test APK, lint, and direct Samsung user-0
+  suites pass; all evidence committed to Git is redacted.
+
+---
+
+## Task 1: Pending Picker Sign-Out Compensation
+
+**Files:**
+
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/domain/FolderMappingRepository.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/data/RoomFolderMappingRepository.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/auth/presentation/AuthViewModel.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/auth/presentation/AuthUiState.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/app/MainActivity.kt`
+- Test: `app/src/androidTest/java/com/aryasubramani/vijibackup/folderaccess/data/RoomFolderMappingRepositoryInstrumentedTest.kt`
+- Test: `app/src/test/java/com/aryasubramani/vijibackup/auth/presentation/AuthViewModelTest.kt`
+- Test: `app/src/androidTest/java/com/aryasubramani/vijibackup/app/AppCompositionInstrumentedTest.kt`
+
+**Interfaces:**
+
+```kotlin
+enum class PendingFolderCleanupResult { Complete, RetryRequired }
+
+interface FolderMappingRepository {
+    suspend fun prepareForSignOut(): PendingFolderCleanupResult
+}
+```
+
+`AuthViewModel` receives a suspend pre-sign-out callback. It enters
+`SigningOut`, runs the callback, then always invokes `AuthSessionManager.signOut`.
+A retry-required result maps to a non-sensitive signed-out warning. A picker
+callback observed after `SigningOut` begins is discarded and its retained
+activity token is cleared.
+
+- [ ] Write repository tests for requested, staged, same-URI referenced, release
+  failure, cancellation, retry, and concurrent callback ordering.
+- [ ] Run the focused tests and confirm they fail because the interface and
+  compensation path do not exist.
+- [ ] Implement the minimum serialized compensation and auth ordering.
+- [ ] Run repository, auth ViewModel, and app-composition tests to green.
+- [ ] Review the diff for auth lifecycle and grant-reference regressions.
+
+## Task 2: Typed Live Folder Access Health
+
+**Files:**
+
+- Create: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/domain/FolderAccessHealth.kt`
+- Create: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/domain/LocalFolderAccessValidator.kt`
+- Create: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/saf/ContentResolverLocalFolderAccessValidator.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/domain/FolderMappingRepository.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/data/RoomFolderMappingRepository.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/app/AppContainer.kt`
+- Create: `app/src/androidTest/AndroidManifest.xml`
+- Create: `app/src/androidTest/java/com/aryasubramani/vijibackup/folderaccess/saf/ControllableDocumentsProvider.kt`
+- Test: `app/src/androidTest/java/com/aryasubramani/vijibackup/folderaccess/saf/ContentResolverLocalFolderAccessValidatorInstrumentedTest.kt`
+- Test: `app/src/androidTest/java/com/aryasubramani/vijibackup/folderaccess/data/RoomFolderMappingRepositoryInstrumentedTest.kt`
+
+**Interfaces:**
+
+```kotlin
+enum class FolderAccessHealth {
+    Checking,
+    Ready,
+    PermissionMissing,
+    TreeMissing,
+    ProviderAuthRequired,
+    TemporarilyUnavailable,
+}
+
+sealed interface ValidateFolderAccessResult {
+    data class Found(val health: FolderAccessHealth) : ValidateFolderAccessResult
+    data object MappingNotFound : ValidateFolderAccessResult
+    data object StorageFailure : ValidateFolderAccessResult
+}
+
+fun interface LocalFolderAccessValidator {
+    suspend fun validate(treeUri: String): FolderAccessHealth
+}
+```
+
+The adapter checks the exact persisted read grant first, builds the root
+document URI with `DocumentsContract`, and validates a single directory row.
+Provider authentication is classified before generic security failure. A null
+cursor or provider/malformed response is temporary; an absent root row is
+`TreeMissing`; cancellation propagates. A generic `SecurityException` triggers
+one fresh exact-grant check: a disappeared read grant is `PermissionMissing`,
+while a still-present grant is `TemporarilyUnavailable`. A provider-reported
+missing root is `TreeMissing`; it is never inferred only from exception text.
+
+The Task 2 provider foundation supports controlled root queries only. It lives
+in the test APK, uses a variant-safe authority, and records calls without raw
+identifiers. Task 5 extends the same provider with child traversal and blocking
+query controls.
+
+- [ ] Write failing tests for every health state, invalid tree, missing/multiple
+  root row, wrong MIME/ID, missing columns, extras, null cursor, cancellation,
+  and non-sensitive failure handling.
+- [ ] Implement the validator and repository mapping lookup.
+- [ ] Run focused SAF/repository tests and both-flavor compilation.
+- [ ] Review callers, DI bindings, API-24 compatibility, and provider-resource closure.
+
+## Task 3: Enable And Disable Configuration
+
+**Files:**
+
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/domain/FolderMappingRepository.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/data/RoomFolderMappingRepository.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/presentation/FolderAccessViewModel.kt`
+- Test: `app/src/androidTest/java/com/aryasubramani/vijibackup/folderaccess/data/RoomFolderMappingRepositoryInstrumentedTest.kt`
+- Test: `app/src/test/java/com/aryasubramani/vijibackup/folderaccess/presentation/FolderAccessViewModelTest.kt`
+
+**Interfaces:**
+
+```kotlin
+enum class SetFolderEnabledResult {
+    Updated,
+    MappingNotFound,
+    StorageFailure,
+}
+
+interface FolderMappingRepository {
+    suspend fun setEnabled(mappingId: String, enabled: Boolean): SetFolderEnabledResult
+}
+```
+
+- [ ] Write failing tests for true/false persistence, idempotence, missing row,
+  database failure, inactive presentation, and stale work after disable.
+- [ ] Implement the DAO-backed repository call and generation-safe ViewModel action.
+- [ ] Prove enabling does not change health and disabled-but-ready remains manually scannable.
+- [ ] Run focused repository and ViewModel suites.
+
+## Task 4: Iterative Read-Only Metadata Scanner
+
+**Files:**
+
+- Create: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/domain/LocalFolderScanner.kt`
+- Create: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/saf/LocalFolderDocumentSource.kt`
+- Create: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/saf/ContentResolverLocalFolderDocumentSource.kt`
+- Create: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/saf/IterativeLocalFolderScanner.kt`
+- Create: `app/src/test/java/com/aryasubramani/vijibackup/folderaccess/saf/IterativeLocalFolderScannerTest.kt`
+
+**Interfaces:**
+
+```kotlin
+data class FolderScanProgress(
+    val foldersVisited: Long,
+    val filesDiscovered: Long,
+    val knownBytes: Long,
+    val filesWithUnknownSize: Long,
+    val unreadableEntries: Long,
+)
+
+data class FolderScanSummary(
+    val progress: FolderScanProgress,
+    val elapsedTimeMillis: Long,
+    val issues: Set<FolderScanIssue>,
+)
+
+enum class FolderScanIssue {
+    InvalidTree,
+    NullCursor,
+    ProviderLoading,
+    ProviderError,
+    QueryFailure,
+    MalformedEntry,
+    RepeatedDocument,
+}
+
+sealed interface FolderScanEvent {
+    data class Progress(val value: FolderScanProgress) : FolderScanEvent
+    data class Complete(val summary: FolderScanSummary) : FolderScanEvent
+    data class Partial(val summary: FolderScanSummary) : FolderScanEvent
+    data class Failed(val summary: FolderScanSummary) : FolderScanEvent
+}
+
+fun interface LocalFolderScanner {
+    fun scan(treeUri: String): Flow<FolderScanEvent>
+}
+
+internal interface LocalFolderDocumentSource {
+    fun rootDocumentId(treeUri: String): String?
+
+    suspend fun queryChildren(
+        treeUri: String,
+        parentDocumentId: String,
+        onDocument: suspend (FolderDocumentMetadata) -> Unit,
+    ): FolderDocumentQueryResult
+}
+
+internal data class FolderDocumentMetadata(
+    val documentId: String,
+    val isDirectory: Boolean,
+    val size: Long?,
+)
+
+internal data class FolderDocumentQueryResult(
+    val cursorReturned: Boolean,
+    val unreadableEntries: Long,
+    val issues: Set<FolderScanIssue>,
+)
+```
+
+`FolderScanSummary` adds elapsed milliseconds and a set of issue codes to the
+progress counters. Arithmetic is overflow-safe. The stream emits monotonic
+progress and exactly one terminal event while collected; coroutine cancellation
+propagates without attempting a terminal emission.
+
+`LocalFolderDocumentSource` exposes an internal nullable root-document-ID
+lookup so the scanner never parses a provider URI itself. Its query callback
+streams sanitized rows instead of returning an in-memory listing. It never
+returns a raw URI, filename, document ID outside the scanner package, cursor,
+or exception. The production source owns every `ContentResolver` query and
+cursor lifetime. The iterative scanner owns queueing, cycle detection, counters,
+and the terminal decision oracle. This split permits fast hostile-path unit
+tests without claiming that a fake source proves Android provider behavior.
+
+- [ ] Write failing pure scanner tests for empty, nested, deep, wide, duplicate,
+  self-cycle, multi-node cycle, null metadata, unknown size, overflow, malformed
+  columns/rows, null cursor, loading/error extras, query exception, cancellation
+  before/during/between queries, and cursor/signal closure.
+- [ ] Implement an iterative queue and bounded aggregate state without retaining
+  names or all rows.
+- [ ] Run the scanner suite and audit production source for prohibited mutations.
+
+## Task 5: Resolver-Facing Hostile Provider Tests
+
+**Files:**
+
+- Modify: `app/src/androidTest/java/com/aryasubramani/vijibackup/folderaccess/saf/ControllableDocumentsProvider.kt`
+- Create: `app/src/androidTest/java/com/aryasubramani/vijibackup/folderaccess/saf/ContentResolverLocalFolderScannerInstrumentedTest.kt`
+
+The provider is exported only by the test APK, exposes no production authority,
+records every framework query and prohibited mutation callback, and can produce
+empty/nested/deep trees, repeated IDs, malformed rows, null cursors, extras,
+security/auth/provider failures, and a cancellable blocked query.
+
+- [ ] Write resolver-facing tests against the production scanner before adding
+  provider behavior needed to pass them.
+- [ ] Prove cursors and cancellation signals close on every terminal path.
+- [ ] Prove zero create/delete/rename/move/open-for-write calls.
+- [ ] Run the provider suite directly on Samsung Android user 0 for both flavors.
+
+## Task 6: Per-Mapping Health And Scan Orchestration
+
+**Files:**
+
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/domain/FolderMappingRepository.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/data/RoomFolderMappingRepository.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/presentation/FolderAccessViewModel.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/app/MainActivity.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/app/AppContainer.kt`
+- Test: `app/src/test/java/com/aryasubramani/vijibackup/folderaccess/presentation/FolderAccessViewModelTest.kt`
+
+**Interfaces:**
+
+```kotlin
+sealed interface BeginFolderScanResult {
+    data class Ready(val events: Flow<FolderScanEvent>) : BeginFolderScanResult
+    data class AccessUnavailable(
+        val health: FolderAccessHealth,
+    ) : BeginFolderScanResult
+    data object MappingNotFound : BeginFolderScanResult
+    data object StorageFailure : BeginFolderScanResult
+}
+
+interface FolderMappingRepository {
+    suspend fun beginScan(mappingId: String): BeginFolderScanResult
+}
+```
+
+The ViewModel owns independent health and scan jobs keyed by mapping ID. Every
+job has a monotonically increasing generation. Repair, remove, disable,
+deactivation, and explicit cancel invalidate the current generation before
+cancelling its job. A late event may never update replacement state.
+
+- [ ] Write failing tests for initial/foreground refresh, all health states,
+  Ready-only scan admission, disabled manual scan, monotonic progress, exact
+  terminal mapping, cancel-vs-complete, repair/remove/disable races, mapping
+  disappearance, deactivation, and two-mapping isolation.
+- [ ] Implement repository scan-source validation and ViewModel job ownership.
+- [ ] Run focused tests repeatedly under the coroutine test scheduler.
+- [ ] Review all repository fakes and composition bindings affected by the interface change.
+
+## Task 7: Protected Folder Controls And Accessibility
+
+**Files:**
+
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/folderaccess/presentation/FolderAccessScreen.kt`
+- Modify: `app/src/main/java/com/aryasubramani/vijibackup/app/VijiBackupApp.kt`
+- Modify: `app/src/main/res/values/strings.xml`
+- Test: `app/src/androidTest/java/com/aryasubramani/vijibackup/folderaccess/presentation/FolderAccessScreenInstrumentedTest.kt`
+- Test: `app/src/androidTest/java/com/aryasubramani/vijibackup/app/AppCompositionInstrumentedTest.kt`
+
+Each row exposes an enabled switch, health text, stable progress area, scan or
+cancel button, repair, and remove. Controls use stable test tags and content
+descriptions. Disabled mappings can scan when Ready. Degraded mappings keep
+repair/remove usable. No raw identifier is rendered.
+
+- [ ] Write failing Compose tests for every health/scan state and action, long
+  counts, fallback names, enlarged font, disabled mapping scan, degraded repair,
+  stale-state replacement, auth gating, and recent-apps policy.
+- [ ] Implement the smallest complete control surface and resource copy.
+- [ ] Run Compose and app-composition suites on both flavors.
+
+## Task 8: Full Verification And Live Samsung Closure
+
+**Files:**
+
+- Modify: `app/src/androidTest/java/com/aryasubramani/vijibackup/folderaccess/LiveFolderAccessStateProbeInstrumentedTest.kt`
+- Modify: `drive backup KB/Drive Backup App Project State.md`
+- Modify: `drive backup KB/Drive Backup App Testing Plan.md`
+- Modify: `drive backup KB/Drive Backup App Source Register.md`
+- Modify: `drive backup KB/Drive Backup App Fresh Laptop Setup And Test Runbook.md`
+- Modify: `drive backup KB/Drive Backup App Phase 3 Local Folder Access Implementation Plan.md`
+
+- [ ] Run both-flavor unit, build, Android-test APK, and lint tasks from a clean
+  configuration-cache state.
+- [ ] Install app and test APKs without clearing production app data.
+- [ ] Run direct instrumentation with `am instrument --user 0`; do not use the
+  Gradle connected runner if it probes Android user 150.
+- [ ] Capture before/after mutation-sentinel manifests locally for only the
+  dedicated Viji Backup test tree.
+- [ ] Run every safe `FOLDER-LIVE-*` case: picker cancel, add, read-only grant,
+  exact duplicate, edge-case scan, real read-only folder scans, cancel/isolation,
+  force-stop/relaunch, grant release/repair, same-URI repair, dedicated-tree
+  move/repair, broken/healthy isolation, co-admin identity, controlled remove,
+  in-place upgrade, recent-apps redaction, and redacted log audit.
+- [ ] Never infer which existing mapping is dispensable. The operator explicitly
+  identifies the dedicated mapping before any live remove or move action.
+- [ ] Record only counts, status codes, and pass/fail evidence in Git.
+- [ ] Run secret/personal-identifier/history scans, whole-branch review, and the
+  final requirements checklist before push and PR creation.
+
+## Canonical Verification Commands
+
+```bash
+./gradlew \
+  :app:testInternalDebugUnitTest \
+  :app:testPublicDebugUnitTest \
+  :app:assembleInternalDebug \
+  :app:assemblePublicDebug \
+  :app:assembleInternalDebugAndroidTest \
+  :app:assemblePublicDebugAndroidTest \
+  :app:lintInternalDebug \
+  :app:lintPublicDebug
+```
+
+Direct physical execution uses the connected device selected without printing
+its serial, then explicitly targets Android user 0. Package names remain:
+
+```text
+com.aryasubramani.vijibackup.internal
+com.aryasubramani.vijibackup.internal.test
+com.aryasubramani.vijibackup
+com.aryasubramani.vijibackup.test
+```
+
+## Deferred Hardware Matrix
+
+API 24, API 30, API 36, removable-storage ejection, physical reboot, and actual
+cross-device transfer remain release-gate deferrals. They are not silently
+converted into Phase 3 passes.
+
+## Next Notes
+
+- [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]]
+- [[Drive Backup App Project State]]
+- [[Drive Backup App Testing Plan]]
+- [[Drive Backup App Failure Matrix]]
+- [[Drive Backup App Source Register]]
