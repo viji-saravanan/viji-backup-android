@@ -15,6 +15,7 @@ import com.aryasubramani.vijibackup.auth.google.GoogleSignInClient
 import com.aryasubramani.vijibackup.folderaccess.data.RoomFolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.data.db.VijiBackupDatabase
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMappingRepository
+import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderAccessValidator
 import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderGrantManager
 import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderMetadataReader
 
@@ -67,6 +68,9 @@ internal class DefaultAppContainer(context: Context) : AppContainer {
                 contentResolver = applicationContext.contentResolver,
             ),
             metadataReader = ContentResolverLocalFolderMetadataReader(
+                contentResolver = applicationContext.contentResolver,
+            ),
+            accessValidator = ContentResolverLocalFolderAccessValidator(
                 contentResolver = applicationContext.contentResolver,
             ),
         )

@@ -9,6 +9,7 @@ import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerLaunch
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
 import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
+import com.aryasubramani.vijibackup.folderaccess.domain.ValidateFolderAccessResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -416,6 +417,9 @@ private class FakeFolderMappingRepository : FolderMappingRepository {
 
     override suspend fun prepareForSignOut(): PendingFolderCleanupResult =
         PendingFolderCleanupResult.Complete
+
+    override suspend fun validate(mappingId: String): ValidateFolderAccessResult =
+        ValidateFolderAccessResult.MappingNotFound
 
     override suspend fun remove(mappingId: String): RemoveFolderResult {
         removeCalls += mappingId

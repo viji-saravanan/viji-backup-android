@@ -11,11 +11,14 @@ import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationS
 import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationType
 import com.aryasubramani.vijibackup.folderaccess.data.db.VijiBackupDatabase
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderAccessHealth
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
+import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderAccessValidator
 import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderMetadataReader
 import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
+import com.aryasubramani.vijibackup.folderaccess.domain.ValidateFolderAccessResult
 import com.aryasubramani.vijibackup.folderaccess.saf.AcquireReadGrantResult
 import com.aryasubramani.vijibackup.folderaccess.saf.GrantReleaseResult
 import com.aryasubramani.vijibackup.folderaccess.saf.LocalFolderGrantManager
@@ -41,6 +44,7 @@ class RoomFolderMappingRepositoryInstrumentedTest {
     private lateinit var database: VijiBackupDatabase
     private lateinit var grants: RecordingGrantManager
     private lateinit var metadata: RecordingFolderMetadataReader
+    private lateinit var accessValidator: RecordingFolderAccessValidator
     private lateinit var repository: RoomFolderMappingRepository
     private val requestTokens = ArrayDeque(listOf("request-a", "request-b", "request-c"))
     private val mappingIds = ArrayDeque(listOf("mapping-a", "mapping-b", "mapping-c"))
@@ -55,10 +59,12 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         ).build()
         grants = RecordingGrantManager()
         metadata = RecordingFolderMetadataReader()
+        accessValidator = RecordingFolderAccessValidator()
         repository = RoomFolderMappingRepository(
             dao = database.folderAccessDao(),
             grantManager = grants,
             metadataReader = metadata,
+            accessValidator = accessValidator,
             ioDispatcher = Dispatchers.IO,
             requestTokenFactory = { requestTokens.removeFirst() },
             mappingIdFactory = { mappingIds.removeFirst() },
@@ -104,6 +110,87 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         )
         assertTrue(grants.acquireCalls.isEmpty())
         assertEquals("request-a", database.folderAccessDao().pendingOperation()?.requestToken)
+    }
+
+    @Test
+    fun validateResolvesExactMappingAndReturnsTypedHealth() = runTest {
+        val treeUri = "content://provider.test/tree/health-ready"
+        database.folderAccessDao().insertMapping(mapping("mapping-health", treeUri))
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.Ready
+
+        assertEquals(
+            ValidateFolderAccessResult.Found(FolderAccessHealth.Ready),
+            repository.validate("mapping-health"),
+        )
+        assertEquals(listOf(treeUri), accessValidator.requests)
+    }
+
+    @Test
+    fun validateMissingMappingDoesNotTouchProvider() = runTest {
+        assertEquals(
+            ValidateFolderAccessResult.MappingNotFound,
+            repository.validate("missing-mapping"),
+        )
+        assertTrue(accessValidator.requests.isEmpty())
+    }
+
+    @Test
+    fun validateUnexpectedAdapterFailureIsStorageFailureWithoutDetails() = runTest {
+        val treeUri = "content://provider.test/tree/health-failure"
+        database.folderAccessDao().insertMapping(mapping("mapping-health", treeUri))
+        accessValidator.failure = IllegalStateException("sensitive-provider-detail")
+
+        assertEquals(
+            ValidateFolderAccessResult.StorageFailure,
+            repository.validate("mapping-health"),
+        )
+    }
+
+    @Test
+    fun validateRejectsPresentationOnlyCheckingState() = runTest {
+        val treeUri = "content://provider.test/tree/health-checking"
+        database.folderAccessDao().insertMapping(mapping("mapping-health", treeUri))
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.Checking
+
+        assertEquals(
+            ValidateFolderAccessResult.StorageFailure,
+            repository.validate("mapping-health"),
+        )
+    }
+
+    @Test
+    fun validateDatabaseFailureDoesNotTouchProvider() = runTest {
+        val treeUri = "content://provider.test/tree/health-storage-failure"
+        database.folderAccessDao().insertMapping(mapping("mapping-health", treeUri))
+        database.close()
+
+        assertEquals(
+            ValidateFolderAccessResult.StorageFailure,
+            repository.validate("mapping-health"),
+        )
+        assertTrue(accessValidator.requests.isEmpty())
+    }
+
+    @Test
+    fun validateCancellationPropagatesAndCanBeRetried() = runTest {
+        val treeUri = "content://provider.test/tree/health-cancel"
+        database.folderAccessDao().insertMapping(mapping("mapping-health", treeUri))
+        accessValidator.failure = CancellationException("test cancellation")
+
+        var cancellation: CancellationException? = null
+        try {
+            repository.validate("mapping-health")
+        } catch (error: CancellationException) {
+            cancellation = error
+        }
+        assertTrue("Expected validation cancellation", cancellation != null)
+
+        accessValidator.failure = null
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.PermissionMissing
+        assertEquals(
+            ValidateFolderAccessResult.Found(FolderAccessHealth.PermissionMissing),
+            repository.validate("mapping-health"),
+        )
     }
 
     @Test
@@ -693,6 +780,7 @@ class RoomFolderMappingRepositoryInstrumentedTest {
             dao = database.folderAccessDao(),
             grantManager = grants,
             metadataReader = metadata,
+            accessValidator = accessValidator,
             ioDispatcher = Dispatchers.IO,
             requestTokenFactory = { requestTokens.removeFirst() },
             mappingIdFactory = {
@@ -895,5 +983,17 @@ private class RecordingFolderMetadataReader : LocalFolderMetadataReader {
         reads += treeUri
         failure?.let { throw it }
         return displayNames[treeUri]
+    }
+}
+
+private class RecordingFolderAccessValidator : LocalFolderAccessValidator {
+    val healthByTreeUri = mutableMapOf<String, FolderAccessHealth>()
+    val requests = mutableListOf<String>()
+    var failure: Throwable? = null
+
+    override suspend fun validate(treeUri: String): FolderAccessHealth {
+        requests += treeUri
+        failure?.let { throw it }
+        return healthByTreeUri[treeUri] ?: FolderAccessHealth.TemporarilyUnavailable
     }
 }

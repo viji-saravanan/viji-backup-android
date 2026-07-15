@@ -66,5 +66,7 @@ interface FolderMappingRepository {
 
     suspend fun prepareForSignOut(): PendingFolderCleanupResult
 
+    suspend fun validate(mappingId: String): ValidateFolderAccessResult
+
     suspend fun remove(mappingId: String): RemoveFolderResult
 }
