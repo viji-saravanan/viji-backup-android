@@ -122,6 +122,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         authViewModel.onAppForegrounded()
+        folderAccessViewModel.refreshFolderHealth()
     }
 
     override fun onStop() {

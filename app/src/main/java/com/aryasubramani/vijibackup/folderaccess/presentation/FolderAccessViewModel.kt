@@ -4,13 +4,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
+import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderScanResult
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderAccessHealth
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMapping
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerLaunch
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanEvent
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanProgress
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanSummary
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
 import com.aryasubramani.vijibackup.folderaccess.domain.SetFolderEnabledResult
+import com.aryasubramani.vijibackup.folderaccess.domain.ValidateFolderAccessResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -28,8 +34,19 @@ data class FolderAccessUiState(
     val isLoading: Boolean = true,
     val removingMappingId: String? = null,
     val updatingEnabledMappingIds: Set<String> = emptySet(),
+    val healthByMappingId: Map<String, FolderAccessHealth> = emptyMap(),
+    val scanStateByMappingId: Map<String, FolderScanUiState> = emptyMap(),
     val notice: FolderAccessNotice? = null,
 )
+
+sealed interface FolderScanUiState {
+    data object NotStarted : FolderScanUiState
+    data class Running(val progress: FolderScanProgress) : FolderScanUiState
+    data class Complete(val summary: FolderScanSummary) : FolderScanUiState
+    data class Partial(val summary: FolderScanSummary) : FolderScanUiState
+    data class Failed(val summary: FolderScanSummary? = null) : FolderScanUiState
+    data class Cancelled(val progress: FolderScanProgress) : FolderScanUiState
+}
 
 enum class FolderAccessNotice {
     PickerBusy,
@@ -57,6 +74,10 @@ class FolderAccessViewModel(
     private var removeOperationGeneration = 0L
     private val enabledOperations = mutableMapOf<String, Job>()
     private val enabledOperationGenerations = mutableMapOf<String, Long>()
+    private val healthOperations = mutableMapOf<String, Job>()
+    private val healthOperationGenerations = mutableMapOf<String, Long>()
+    private val scanOperations = mutableMapOf<String, Job>()
+    private val scanOperationGenerations = mutableMapOf<String, Long>()
     private var mappingObservation: Job? = null
     private var isActive = false
 
@@ -83,10 +104,19 @@ class FolderAccessViewModel(
         }
         enabledOperations.values.forEach(Job::cancel)
         enabledOperations.clear()
+        healthOperations.keys.toList().forEach(::invalidateHealthOperation)
+        scanOperations.keys.toList().forEach { mappingId ->
+            invalidateScanOperation(mappingId, markCancelled = false)
+        }
         mutableUiState.update { state ->
             state.copy(
+                mappings = emptyList(),
+                isLoading = true,
                 removingMappingId = null,
                 updatingEnabledMappingIds = emptySet(),
+                healthByMappingId = emptyMap(),
+                scanStateByMappingId = emptyMap(),
+                notice = null,
             )
         }
         mappingObservation?.cancel()
@@ -98,7 +128,11 @@ class FolderAccessViewModel(
     }
 
     fun repairFolder(mappingId: String) {
-        beginPicker { repository.beginRepair(mappingId) }
+        beginPicker(
+            beforeStart = { invalidateScanOperation(mappingId, markCancelled = true) },
+        ) {
+            repository.beginRepair(mappingId)
+        }
     }
 
     fun removeFolder(mappingId: String) {
@@ -109,6 +143,8 @@ class FolderAccessViewModel(
         ) {
             return
         }
+        invalidateHealthOperation(mappingId)
+        invalidateScanOperation(mappingId, markCancelled = true)
         val operationGeneration = ++removeOperationGeneration
         removeOperation = viewModelScope.launch {
             mutableUiState.update { state ->
@@ -127,6 +163,9 @@ class FolderAccessViewModel(
                 }
                 if (operationGeneration == removeOperationGeneration) {
                     mutableUiState.update { state -> state.copy(notice = result.notice()) }
+                    if (result != RemoveFolderResult.Removed) {
+                        refreshFolderHealth(mappingId)
+                    }
                 }
             } finally {
                 if (operationGeneration == removeOperationGeneration) {
@@ -139,6 +178,9 @@ class FolderAccessViewModel(
 
     fun setFolderEnabled(mappingId: String, enabled: Boolean) {
         if (!isActive) return
+        if (!enabled) {
+            invalidateScanOperation(mappingId, markCancelled = true)
+        }
 
         val operationGeneration = enabledOperationGenerations
             .getOrElse(mappingId) { 0L } + 1
@@ -193,14 +235,93 @@ class FolderAccessViewModel(
         mutableUiState.update { state ->
             state.copy(notice = completion.notice())
         }
+        if (completion is FolderPickerCompletion.Repaired) {
+            invalidateHealthOperation(completion.mappingId)
+            invalidateScanOperation(completion.mappingId, markCancelled = false)
+            refreshFolderHealth(completion.mappingId)
+        }
         return completion
+    }
+
+    fun refreshFolderHealth() {
+        if (!isActive) return
+        mutableUiState.value.mappings.forEach { mapping ->
+            refreshFolderHealth(mapping.id)
+        }
+    }
+
+    fun scanFolder(mappingId: String) {
+        if (!isActive || scanOperations[mappingId]?.isActive == true) return
+        val mappingExists = mutableUiState.value.mappings.any { it.id == mappingId }
+        if (!mappingExists) return
+
+        invalidateHealthOperation(mappingId)
+        val operationGeneration = nextScanGeneration(mappingId)
+        mutableUiState.update { state ->
+            state.copy(
+                scanStateByMappingId = state.scanStateByMappingId +
+                    (mappingId to FolderScanUiState.Running(FolderScanProgress())),
+                notice = null,
+            )
+        }
+        val operation = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                when (val result = repository.beginScan(mappingId)) {
+                    is BeginFolderScanResult.Ready -> {
+                        updateHealthIfCurrent(
+                            mappingId,
+                            operationGeneration,
+                            FolderAccessHealth.Ready,
+                        )
+                        collectScanEvents(mappingId, operationGeneration, result.events)
+                    }
+                    is BeginFolderScanResult.AccessUnavailable -> {
+                        updateScanAdmissionIfCurrent(
+                            mappingId = mappingId,
+                            generation = operationGeneration,
+                            health = result.health,
+                            notice = null,
+                        )
+                    }
+                    BeginFolderScanResult.MappingNotFound -> {
+                        updateScanAdmissionIfCurrent(
+                            mappingId = mappingId,
+                            generation = operationGeneration,
+                            health = null,
+                            notice = FolderAccessNotice.MappingMissing,
+                        )
+                    }
+                    BeginFolderScanResult.StorageFailure -> {
+                        updateScanFailureIfCurrent(mappingId, operationGeneration)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                updateScanFailureIfCurrent(mappingId, operationGeneration)
+            } finally {
+                if (scanOperationGenerations[mappingId] == operationGeneration) {
+                    scanOperations.remove(mappingId)
+                }
+            }
+        }
+        scanOperations[mappingId] = operation
+        operation.start()
+    }
+
+    fun cancelScan(mappingId: String) {
+        if (!isActive) return
+        invalidateScanOperation(mappingId, markCancelled = true)
     }
 
     fun clearNotice() {
         mutableUiState.update { state -> state.copy(notice = null) }
     }
 
-    private fun beginPicker(operation: suspend () -> BeginFolderPickerResult) {
+    private fun beginPicker(
+        beforeStart: () -> Unit = {},
+        operation: suspend () -> BeginFolderPickerResult,
+    ) {
         if (
             !isActive ||
             beginOperation?.isActive == true ||
@@ -208,6 +329,7 @@ class FolderAccessViewModel(
         ) {
             return
         }
+        beforeStart()
         beginOperation = viewModelScope.launch {
             val result = try {
                 operation()
@@ -234,12 +356,39 @@ class FolderAccessViewModel(
     private fun observeMappings(): Job = viewModelScope.launch {
         try {
             repository.observeMappings().collect { mappings ->
+                val currentMappingIds = mutableUiState.value.mappings.mapTo(mutableSetOf()) {
+                    it.id
+                }
+                val nextMappingIds = mappings.mapTo(mutableSetOf()) { it.id }
+                val removedMappingIds = currentMappingIds - nextMappingIds
+                val addedMappingIds = nextMappingIds - currentMappingIds
+                removedMappingIds.forEach { mappingId ->
+                    invalidateHealthOperation(mappingId)
+                    invalidateScanOperation(mappingId, markCancelled = false)
+                }
                 mutableUiState.update { state ->
                     state.copy(
                         mappings = mappings,
                         isLoading = false,
+                        healthByMappingId = state.healthByMappingId
+                            .filterKeys(nextMappingIds::contains)
+                            .toMutableMap()
+                            .apply {
+                                addedMappingIds.forEach { mappingId ->
+                                    put(mappingId, FolderAccessHealth.Checking)
+                                }
+                            },
+                        scanStateByMappingId = state.scanStateByMappingId
+                            .filterKeys(nextMappingIds::contains)
+                            .toMutableMap()
+                            .apply {
+                                addedMappingIds.forEach { mappingId ->
+                                    put(mappingId, FolderScanUiState.NotStarted)
+                                }
+                            },
                     )
                 }
+                addedMappingIds.forEach(::refreshFolderHealth)
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -252,6 +401,182 @@ class FolderAccessViewModel(
             }
         }
     }
+
+    private fun refreshFolderHealth(mappingId: String) {
+        if (!isActive || mutableUiState.value.mappings.none { it.id == mappingId }) return
+
+        val operationGeneration = nextHealthGeneration(mappingId)
+        healthOperations.remove(mappingId)?.cancel()
+        mutableUiState.update { state ->
+            state.copy(
+                healthByMappingId = state.healthByMappingId +
+                    (mappingId to FolderAccessHealth.Checking),
+            )
+        }
+        val operation = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            val health = try {
+                when (val result = repository.validate(mappingId)) {
+                    is ValidateFolderAccessResult.Found -> result.health
+                    ValidateFolderAccessResult.MappingNotFound,
+                    ValidateFolderAccessResult.StorageFailure ->
+                        FolderAccessHealth.TemporarilyUnavailable
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                FolderAccessHealth.TemporarilyUnavailable
+            }
+            if (healthOperationGenerations[mappingId] == operationGeneration &&
+                mutableUiState.value.mappings.any { it.id == mappingId }
+            ) {
+                mutableUiState.update { state ->
+                    state.copy(
+                        healthByMappingId = state.healthByMappingId + (mappingId to health),
+                    )
+                }
+            }
+            if (healthOperationGenerations[mappingId] == operationGeneration) {
+                healthOperations.remove(mappingId)
+            }
+        }
+        healthOperations[mappingId] = operation
+        operation.start()
+    }
+
+    private suspend fun collectScanEvents(
+        mappingId: String,
+        generation: Long,
+        events: Flow<FolderScanEvent>,
+    ) {
+        var terminalReceived = false
+        events.collect { event ->
+            if (terminalReceived || scanOperationGenerations[mappingId] != generation) {
+                return@collect
+            }
+            when (event) {
+                is FolderScanEvent.Progress -> updateScanProgress(mappingId, event.value)
+                is FolderScanEvent.Complete -> {
+                    terminalReceived = true
+                    updateTerminalScanState(mappingId) { progress ->
+                        FolderScanUiState.Complete(event.summary.withProgress(progress))
+                    }
+                }
+                is FolderScanEvent.Partial -> {
+                    terminalReceived = true
+                    updateTerminalScanState(mappingId) { progress ->
+                        FolderScanUiState.Partial(event.summary.withProgress(progress))
+                    }
+                }
+                is FolderScanEvent.Failed -> {
+                    terminalReceived = true
+                    updateTerminalScanState(mappingId) { progress ->
+                        FolderScanUiState.Failed(event.summary.withProgress(progress))
+                    }
+                }
+            }
+        }
+        if (!terminalReceived && scanOperationGenerations[mappingId] == generation) {
+            updateScanFailureIfCurrent(mappingId, generation)
+        }
+    }
+
+    private fun updateScanProgress(mappingId: String, progress: FolderScanProgress) {
+        mutableUiState.update { state ->
+            val current = state.scanStateByMappingId[mappingId] as? FolderScanUiState.Running
+                ?: return@update state
+            state.copy(
+                scanStateByMappingId = state.scanStateByMappingId +
+                    (mappingId to FolderScanUiState.Running(current.progress.merge(progress))),
+            )
+        }
+    }
+
+    private fun updateTerminalScanState(
+        mappingId: String,
+        terminalState: (FolderScanProgress) -> FolderScanUiState,
+    ) {
+        mutableUiState.update { state ->
+            val progress = state.scanStateByMappingId[mappingId].progressOrEmpty()
+            state.copy(
+                scanStateByMappingId = state.scanStateByMappingId +
+                    (mappingId to terminalState(progress)),
+            )
+        }
+    }
+
+    private fun updateScanAdmissionIfCurrent(
+        mappingId: String,
+        generation: Long,
+        health: FolderAccessHealth?,
+        notice: FolderAccessNotice?,
+    ) {
+        if (scanOperationGenerations[mappingId] != generation) return
+        mutableUiState.update { state ->
+            state.copy(
+                healthByMappingId = if (health == null) {
+                    state.healthByMappingId
+                } else {
+                    state.healthByMappingId + (mappingId to health)
+                },
+                scanStateByMappingId = state.scanStateByMappingId +
+                    (mappingId to FolderScanUiState.NotStarted),
+                notice = notice,
+            )
+        }
+    }
+
+    private fun updateScanFailureIfCurrent(mappingId: String, generation: Long) {
+        if (scanOperationGenerations[mappingId] != generation) return
+        mutableUiState.update { state ->
+            state.copy(
+                scanStateByMappingId = state.scanStateByMappingId +
+                    (mappingId to FolderScanUiState.Failed()),
+                notice = FolderAccessNotice.StorageFailure,
+            )
+        }
+    }
+
+    private fun updateHealthIfCurrent(
+        mappingId: String,
+        generation: Long,
+        health: FolderAccessHealth,
+    ) {
+        if (scanOperationGenerations[mappingId] != generation) return
+        mutableUiState.update { state ->
+            state.copy(healthByMappingId = state.healthByMappingId + (mappingId to health))
+        }
+    }
+
+    private fun invalidateHealthOperation(mappingId: String) {
+        nextHealthGeneration(mappingId)
+        healthOperations.remove(mappingId)?.cancel()
+    }
+
+    private fun invalidateScanOperation(mappingId: String, markCancelled: Boolean) {
+        val operation = scanOperations.remove(mappingId) ?: return
+        nextScanGeneration(mappingId)
+        if (markCancelled) {
+            mutableUiState.update { state ->
+                val current = state.scanStateByMappingId[mappingId]
+                if (current !is FolderScanUiState.Running) return@update state
+                state.copy(
+                    scanStateByMappingId = state.scanStateByMappingId +
+                        (mappingId to FolderScanUiState.Cancelled(current.progress)),
+                )
+            }
+        }
+        operation.cancel()
+    }
+
+    private fun nextHealthGeneration(mappingId: String): Long =
+        (healthOperationGenerations[mappingId] ?: 0L).inc().also { generation ->
+            healthOperationGenerations[mappingId] = generation
+        }
+
+    private fun nextScanGeneration(mappingId: String): Long =
+        (scanOperationGenerations[mappingId] ?: 0L).inc().also { generation ->
+            scanOperationGenerations[mappingId] = generation
+        }
 
     private fun showNotice(notice: FolderAccessNotice) {
         mutableUiState.update { state -> state.copy(notice = notice) }
@@ -295,4 +620,26 @@ class FolderAccessViewModel(
             return FolderAccessViewModel(repository) as T
         }
     }
+}
+
+private fun FolderScanProgress.merge(other: FolderScanProgress) = FolderScanProgress(
+    foldersVisited = maxOf(foldersVisited, other.foldersVisited),
+    filesDiscovered = maxOf(filesDiscovered, other.filesDiscovered),
+    knownBytes = maxOf(knownBytes, other.knownBytes),
+    filesWithUnknownSize = maxOf(filesWithUnknownSize, other.filesWithUnknownSize),
+    unreadableEntries = maxOf(unreadableEntries, other.unreadableEntries),
+)
+
+private fun FolderScanSummary.withProgress(progress: FolderScanProgress) = copy(
+    progress = progress.merge(this.progress),
+)
+
+private fun FolderScanUiState?.progressOrEmpty(): FolderScanProgress = when (this) {
+    is FolderScanUiState.Running -> progress
+    is FolderScanUiState.Complete -> summary.progress
+    is FolderScanUiState.Partial -> summary.progress
+    is FolderScanUiState.Failed -> summary?.progress ?: FolderScanProgress()
+    is FolderScanUiState.Cancelled -> progress
+    FolderScanUiState.NotStarted,
+    null -> FolderScanProgress()
 }
