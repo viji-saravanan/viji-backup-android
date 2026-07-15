@@ -32,10 +32,11 @@ Phase 1 foundation, Phase 2 authentication, the public-source workflow, and the
 implemented Phase 3 local-folder slices are integrated on `main` through PRs
 #1-#4. Their implementation packets, architecture, failure matrix, security
 rules, source register, and physical-device acceptance matrix are committed
-alongside the code. The active completion branch now contains typed root-health
-validation and durable enablement behavior; remaining Phase 3 scan
-orchestration, controls, and live-acceptance work continues there until one
-reviewed PR is ready.
+alongside the code. The active completion branch now contains the remaining
+typed health, durable enablement, scanner, per-mapping orchestration, and
+protected control surface. Core live Samsung acceptance is recorded below. The
+branch is ready for a draft PR; whole-branch review and destructive recovery
+cases remain intentionally deferred before merge.
 
 Implemented Phase 2 slices:
 
@@ -95,12 +96,18 @@ Implemented Phase 3 slices:
   no-mutation behavior in both flavors;
 - a disabled, variant-safe test-only provider manifest plus physical Samsung
   fault-path coverage without source-content mutations or test-process startup
-  crashes.
+  crashes;
+- repository scan admission that revalidates current access and permits manual
+  scans for disabled-but-readable mappings without admitting degraded roots;
+- independent generation-owned health and scan jobs with monotonic progress,
+  exact cancellation, stale-event suppression, and two-mapping isolation;
+- protected folder controls for enablement, typed health, stable progress,
+  scan/cancel, repair, and confirmed removal without rendering storage IDs.
 
 Not yet implemented after the integrated Phase 3 slices:
 
-- repository/UI scan admission, progress, cancellation, and per-mapping isolation;
-- enable/disable UI controls and scan controls;
+- the mandatory exact top-level Downloads source, which is the first Phase 4
+  milestone and requires a separate explicit all-files-access settings flow;
 - Google Drive authorization or destination access;
 - any selected-folder sync behavior;
 - release signing or APK publication.
@@ -232,9 +239,8 @@ Additional Phase 3 root-health evidence on 2026-07-15:
 - both-flavor JVM tests, app assembly, Android-test compilation, and
   Android-test APK assembly passed;
 - the provider manifest check caught and fixed a class-name packaging defect;
-- no real root-health acceptance is claimed yet because both installed flavors
-  currently have zero live mappings. The dedicated Samsung test tree and the
-  full `FOLDER-LIVE-*` matrix remain mandatory before Phase 3 closure.
+- this zero-mapping observation was the pre-fixture baseline and is superseded
+  by the redacted core live evidence recorded below.
 
 Additional Phase 3 enablement evidence on 2026-07-15:
 
@@ -259,6 +265,24 @@ Additional Phase 3 scanner evidence on 2026-07-15:
 - whole-Downloads support is now a confirmed final-app requirement, but remains
   a separate explicit all-files-access source rather than a false SAF claim.
 
+Additional Phase 3 orchestration and core live evidence on 2026-07-15:
+
+- the scan-admission and ViewModel contracts were witnessed RED before
+  implementation; focused orchestration tests pass for both flavors;
+- all 51 Room repository tests and all 11 protected-folder Compose tests passed
+  directly on Samsung Android user 0 with no failures;
+- the canonical 179-task two-flavor unit, app APK, Android-test APK, and lint
+  matrix passed from one `--no-configuration-cache` invocation;
+- `adb install --no-streaming -r` preserved app data, and direct
+  `am instrument --user 0` reported 2 named mappings, 2 persisted tree grants,
+  0 write grants, and no pending picker operation;
+- real scans completed for a small nested tree and a dedicated 1,502-file tree;
+  cancelling the larger scan changed only that mapping, and retry completed;
+- the dedicated 1,502-file before/after content sentinel was byte-for-byte
+  unchanged;
+- grant-loss repair, controlled removal, co-administrator switching, and the
+  final whole-branch review remain merge gates and are not inferred as passes.
+
 ## Current Passing Checks
 
 ```bash
@@ -282,22 +306,18 @@ proving a clean checkout reaches the intended fail-closed setup state.
 
 ## Immediate Goal
 
-Complete Phase 3 read-only metadata scanning, per-mapping orchestration,
-controls, and live Samsung acceptance without weakening the tested
-process-scope auth boundary or claiming that Android's local-only picker hint
-proves physical locality.
+Publish the completed Phase 3 implementation branch as a draft PR while keeping
+unrun destructive recovery cases and the explicitly deferred whole-branch review
+visible as merge gates.
 
 Next sequence:
 
-- create one dedicated live test tree because both installed flavors currently
-  contain zero mappings, then capture its local-only mutation sentinel;
-- implement read-only scan, cancellation, and per-mapping isolation in
-  red-green vertical slices without mutating source content;
-- run the full automated regression and every physical Samsung
-  `FOLDER-LIVE-*` acceptance case;
+- push the completion branch and open a comprehensive draft PR;
+- run the deferred whole-branch review and remaining destructive live recovery
+  cases before merge;
 - keep configured APKs and raw live evidence out of public CI and Git;
-- defer real Drive authorization and upload acceptance to Phase 4, where the
-  current Google account and shared-folder ACL must be checked.
+- begin Phase 4 only on explicit user signal, starting with exact top-level
+  Downloads access before Drive destination authorization.
 
 ## Next Notes
 

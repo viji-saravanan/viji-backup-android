@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-implementation-roadmap
 status: active
-last_updated: 2026-07-14
+last_updated: 2026-07-15
 context_role: roadmap
 read_when:
   - The agent needs sequencing, milestones, or implementation gates.
@@ -144,7 +144,7 @@ Exit gate:
 
 - User-selected internal folder can be scanned after app restart.
 
-## Phase 4: Drive Destination Setup
+## Phase 4: Downloads Source And Drive Destination Setup
 
 Load:
 
@@ -154,6 +154,10 @@ Load:
 
 Deliverables:
 
+- first milestone: explicit opt-in exact top-level Downloads source using the
+  Android all-files-access settings flow;
+- read-only Downloads traversal, revocation detection, and Samsung acceptance,
+  isolated from the default SAF source path;
 - shared parent folder connection;
 - per-user/per-device folder creation;
 - Drive destination health check;
@@ -162,7 +166,8 @@ Deliverables:
 
 Exit gate:
 
-- App can create a test file in the shared folder using the signed-in user's account.
+- App can enumerate exact top-level Downloads read only after explicit consent,
+  and create a test file in the shared folder using the signed-in user's account.
 
 ## Phase 5: Sync Engine
 

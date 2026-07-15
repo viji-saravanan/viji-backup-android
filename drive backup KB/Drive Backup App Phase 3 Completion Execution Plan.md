@@ -431,13 +431,13 @@ job has a monotonically increasing generation. Repair, remove, disable,
 deactivation, and explicit cancel invalidate the current generation before
 cancelling its job. A late event may never update replacement state.
 
-- [ ] Write failing tests for initial/foreground refresh, all health states,
+- [x] Write failing tests for initial/foreground refresh, all health states,
   Ready-only scan admission, disabled manual scan, monotonic progress, exact
   terminal mapping, cancel-vs-complete, repair/remove/disable races, mapping
   disappearance, deactivation, and two-mapping isolation.
-- [ ] Implement repository scan-source validation and ViewModel job ownership.
-- [ ] Run focused tests repeatedly under the coroutine test scheduler.
-- [ ] Review all repository fakes and composition bindings affected by the interface change.
+- [x] Implement repository scan-source validation and ViewModel job ownership.
+- [x] Run focused tests repeatedly under the coroutine test scheduler.
+- [x] Review all repository fakes and composition bindings affected by the interface change.
 
 ## Task 7: Protected Folder Controls And Accessibility
 
@@ -454,11 +454,11 @@ cancel button, repair, and remove. Controls use stable test tags and content
 descriptions. Disabled mappings can scan when Ready. Degraded mappings keep
 repair/remove usable. No raw identifier is rendered.
 
-- [ ] Write failing Compose tests for every health/scan state and action, long
+- [x] Write failing Compose tests for every health/scan state and action, long
   counts, fallback names, enlarged font, disabled mapping scan, degraded repair,
   stale-state replacement, auth gating, and recent-apps policy.
-- [ ] Implement the smallest complete control surface and resource copy.
-- [ ] Run Compose and app-composition suites on both flavors.
+- [x] Implement the smallest complete control surface and resource copy.
+- [x] Run Compose and app-composition coverage across the two-flavor verification matrix.
 
 ## Task 8: Full Verification And Live Samsung Closure
 
@@ -471,21 +471,21 @@ repair/remove usable. No raw identifier is rendered.
 - Modify: `drive backup KB/Drive Backup App Fresh Laptop Setup And Test Runbook.md`
 - Modify: `drive backup KB/Drive Backup App Phase 3 Local Folder Access Implementation Plan.md`
 
-- [ ] Run both-flavor unit, build, Android-test APK, and lint tasks from a clean
+- [x] Run both-flavor unit, build, Android-test APK, and lint tasks from a clean
   configuration-cache state.
-- [ ] Install app and test APKs without clearing production app data.
-- [ ] Run direct instrumentation with `am instrument --user 0`; do not use the
+- [x] Install app and test APKs without clearing production app data.
+- [x] Run direct instrumentation with `am instrument --user 0`; do not use the
   Gradle connected runner if it probes Android user 150.
-- [ ] Capture before/after mutation-sentinel manifests locally for only the
+- [x] Capture before/after mutation-sentinel manifests locally for only the
   dedicated Viji Backup test tree.
 - [ ] Run every safe `FOLDER-LIVE-*` case: picker cancel, add, read-only grant,
   exact duplicate, edge-case scan, real read-only folder scans, cancel/isolation,
   force-stop/relaunch, grant release/repair, same-URI repair, dedicated-tree
   move/repair, broken/healthy isolation, co-admin identity, controlled remove,
   in-place upgrade, recent-apps redaction, and redacted log audit.
-- [ ] Never infer which existing mapping is dispensable. The operator explicitly
+- [x] Never infer which existing mapping is dispensable. The operator explicitly
   identifies the dedicated mapping before any live remove or move action.
-- [ ] Record only counts, status codes, and pass/fail evidence in Git.
+- [x] Record only counts, status codes, and pass/fail evidence in Git.
 - [ ] Run secret/personal-identifier/history scans, whole-branch review, and the
   final requirements checklist before push and PR creation.
 

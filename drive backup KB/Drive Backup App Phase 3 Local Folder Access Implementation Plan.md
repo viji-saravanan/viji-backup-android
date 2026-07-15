@@ -1,12 +1,12 @@
 ---
 doc_id: drive-backup-app-phase-3-local-folder-access-implementation-plan
 status: active
-last_updated: 2026-07-13
+last_updated: 2026-07-15
 context_role: implementation-plan
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
 execution: code
-execution_status: implementing
+execution_status: implementation-complete-live-closure-partial
 read_when:
   - The agent implements, reviews, or tests Phase 3 local folder access.
   - The agent changes folder mappings, SAF URI grants, local tree scanning, or permission repair.
@@ -44,8 +44,11 @@ Home, DocumentsUI, and activity recreation; a cold process still
 reauthenticates.
 
 Iterative scanning, scan cancellation, enable/disable controls, per-mapping scan
-orchestration, and the full restart/upgrade live matrix remain incomplete.
-Phase 3 must not be described as complete yet.
+orchestration, and protected folder controls are implemented. The canonical
+two-flavor matrix and core Samsung add/read-only-grant/scan/cancel/retry/source-
+sentinel cases pass. Grant-loss repair, controlled live removal,
+co-administrator switching, and whole-branch review remain merge gates, so
+release closure must not be inferred from implementation completion.
 
 ## Confirmed Product Inputs
 
@@ -67,8 +70,9 @@ Phase 3 must not be described as complete yet.
   Phase 5, where duplicate upload and destination semantics are available.
 - The current SAF source accepts only locations the system picker grants and
   does not request broad storage access. The final app must also support the
-  exact Downloads root through a separate, explicit all-files-access source;
-  that follow-on must not weaken or masquerade as the SAF permission model.
+  exact Downloads root through a separate, explicit all-files-access source.
+  It is the first mandatory Phase 4 milestone and must not weaken or masquerade
+  as the SAF permission model.
 
 ## Non-Negotiable Android Limits
 

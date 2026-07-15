@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-testing-plan
 status: active
-last_updated: 2026-07-13
+last_updated: 2026-07-15
 context_role: testing
 read_when:
   - The agent writes, reviews, or plans tests.
@@ -244,13 +244,13 @@ system picker and real persisted grant:
 - process logs and public evidence contain no raw URI, live filename, subject,
   token, OAuth identifier, or exception payload.
 
-Focused evidence current on 2026-07-13:
+Focused evidence current on 2026-07-15:
 
-- 30 repository instrumentation cases pass on Android user 0, covering add,
+- 51 repository instrumentation cases pass on Android user 0, covering add,
   duplicate rejection, pending recovery, grant reduction/reconciliation,
   metadata backfill, repair, removal, cancellation, and forced SQLite
   delete-failure retry;
-- 7 Compose folder-screen cases pass on the Samsung, covering real/fallback
+- 11 Compose folder-screen cases pass on the Samsung, covering real/fallback
   labels, exact-ID forwarding, named confirmation, cancel-without-side-effect,
   in-flight progress, disabled competing actions, and non-sensitive notices;
 - the app-composition lifecycle case proves one explicit sign-in and one
@@ -258,16 +258,19 @@ Focused evidence current on 2026-07-13:
 - the ViewModel coroutine-race case proves that a cancelled removal completing
   late cannot clear progress, admit a third mutation, or publish state over a
   newer removal;
-- the redacted live probe confirms 2 production mappings, 2 persisted tree
+- the redacted live probe confirms 2 dedicated mappings, 2 persisted tree
   grants, 0 write grants, and no pending picker operation;
-- before the first approved launch containing the metadata reader, the redacted
-  probe correctly found 0 named mappings. Acceptance requires the same probe to
-  find 2 after approved reconciliation; names and URIs must not be printed;
+- the redacted pre-fixture probe found 0 mappings and 0 grants; after real picker
+  selection the probe found 2 named mappings without printing names or URIs;
+- real scans completed for 2 files and 1,502 files respectively; the large scan
+  was cancelled and retried while the small mapping remained usable;
+- the dedicated 1,502-file mutation sentinel was unchanged after scanning and
+  cancellation;
 - the exact Downloads root is visibly blocked by Android DocumentsUI as the
   official Android 11+ contract requires. This is not an app defect and must not
   be bypassed silently;
-- live removal remains pending. The user must identify one dispensable test
-  mapping first; the other real mapping must remain untouched.
+- grant-loss repair, controlled live removal, co-administrator switching, and
+  the final review remain explicit merge gates.
 
 Impossible-to-induce branches use a controllable instrumentation-only
 DocumentsProvider through the production scanner. This is not live acceptance.

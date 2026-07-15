@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-fresh-laptop-setup-test-runbook
 status: active
-last_updated: 2026-07-13
+last_updated: 2026-07-15
 context_role: setup-and-repeatable-testing
 read_when:
   - A contributor or reviewer is starting on a different laptop.
@@ -499,6 +499,11 @@ Run this matrix on the physical Samsung for every Phase 3 release candidate.
 Use the internal flavor and a currently approved live account. The production
 Phase 3 path does not contact Drive; do not report Drive integration from these
 cases. Phase 4 separately requires the real shared Drive destination.
+
+The exact top-level Downloads folder is a mandatory first Phase 4 milestone.
+Do not attempt to represent it as a SAF success: implement a separate explicit
+all-files-access settings flow, keep traversal read only, test permission
+revocation on the Samsung, and leave ordinary folders on the SAF path.
 
 Before destructive grant tests, create a dedicated, clearly named folder on the
 phone containing disposable files. Existing personal folders may be selected
