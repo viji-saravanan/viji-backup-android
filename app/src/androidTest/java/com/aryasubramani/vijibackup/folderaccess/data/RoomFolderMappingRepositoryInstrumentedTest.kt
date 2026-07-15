@@ -18,6 +18,7 @@ import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderAccessValidat
 import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderMetadataReader
 import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
+import com.aryasubramani.vijibackup.folderaccess.domain.SetFolderEnabledResult
 import com.aryasubramani.vijibackup.folderaccess.domain.ValidateFolderAccessResult
 import com.aryasubramani.vijibackup.folderaccess.saf.AcquireReadGrantResult
 import com.aryasubramani.vijibackup.folderaccess.saf.GrantReleaseResult
@@ -191,6 +192,66 @@ class RoomFolderMappingRepositoryInstrumentedTest {
             ValidateFolderAccessResult.Found(FolderAccessHealth.PermissionMissing),
             repository.validate("mapping-health"),
         )
+    }
+
+    @Test
+    fun setEnabledPersistsTrueFalseAndIdempotentRequestsWithoutHealthOrGrantWork() = runTest {
+        val treeUri = "content://provider.test/tree/enabled-state"
+        database.folderAccessDao().insertMapping(
+            mapping("mapping-enabled", treeUri).copy(enabled = true),
+        )
+
+        assertEquals(
+            SetFolderEnabledResult.Updated,
+            repository.setEnabled("mapping-enabled", true),
+        )
+        assertTrue(requireNotNull(database.folderAccessDao().mappingById("mapping-enabled")).enabled)
+
+        assertEquals(
+            SetFolderEnabledResult.Updated,
+            repository.setEnabled("mapping-enabled", false),
+        )
+        assertEquals(
+            false,
+            requireNotNull(database.folderAccessDao().mappingById("mapping-enabled")).enabled,
+        )
+
+        assertEquals(
+            SetFolderEnabledResult.Updated,
+            repository.setEnabled("mapping-enabled", false),
+        )
+        assertTrue(accessValidator.requests.isEmpty())
+        assertTrue(grants.acquireCalls.isEmpty())
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun setEnabledMissingMappingHasNoProviderOrGrantSideEffects() = runTest {
+        assertEquals(
+            SetFolderEnabledResult.MappingNotFound,
+            repository.setEnabled("missing-mapping", false),
+        )
+
+        assertTrue(accessValidator.requests.isEmpty())
+        assertTrue(grants.acquireCalls.isEmpty())
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun setEnabledDatabaseFailureIsTypedAndDoesNotTouchProvider() = runTest {
+        database.folderAccessDao().insertMapping(
+            mapping(
+                id = "mapping-enabled",
+                treeUri = "content://provider.test/tree/enabled-storage-failure",
+            ),
+        )
+        database.close()
+
+        assertEquals(
+            SetFolderEnabledResult.StorageFailure,
+            repository.setEnabled("mapping-enabled", false),
+        )
+        assertTrue(accessValidator.requests.isEmpty())
     }
 
     @Test

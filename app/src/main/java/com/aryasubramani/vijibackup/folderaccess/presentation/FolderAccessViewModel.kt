@@ -10,7 +10,9 @@ import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerLaunch
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
+import com.aryasubramani.vijibackup.folderaccess.domain.SetFolderEnabledResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -25,6 +27,7 @@ data class FolderAccessUiState(
     val mappings: List<FolderMapping> = emptyList(),
     val isLoading: Boolean = true,
     val removingMappingId: String? = null,
+    val updatingEnabledMappingIds: Set<String> = emptySet(),
     val notice: FolderAccessNotice? = null,
 )
 
@@ -52,6 +55,8 @@ class FolderAccessViewModel(
     private var beginOperation: Job? = null
     private var removeOperation: Job? = null
     private var removeOperationGeneration = 0L
+    private val enabledOperations = mutableMapOf<String, Job>()
+    private val enabledOperationGenerations = mutableMapOf<String, Long>()
     private var mappingObservation: Job? = null
     private var isActive = false
 
@@ -72,7 +77,18 @@ class FolderAccessViewModel(
         removeOperationGeneration += 1
         removeOperation?.cancel()
         removeOperation = null
-        mutableUiState.update { state -> state.copy(removingMappingId = null) }
+        enabledOperations.keys.forEach { mappingId ->
+            enabledOperationGenerations[mappingId] =
+                enabledOperationGenerations.getValue(mappingId) + 1
+        }
+        enabledOperations.values.forEach(Job::cancel)
+        enabledOperations.clear()
+        mutableUiState.update { state ->
+            state.copy(
+                removingMappingId = null,
+                updatingEnabledMappingIds = emptySet(),
+            )
+        }
         mappingObservation?.cancel()
         mappingObservation = null
     }
@@ -119,6 +135,48 @@ class FolderAccessViewModel(
                 }
             }
         }
+    }
+
+    fun setFolderEnabled(mappingId: String, enabled: Boolean) {
+        if (!isActive) return
+
+        val operationGeneration = enabledOperationGenerations
+            .getOrElse(mappingId) { 0L } + 1
+        enabledOperationGenerations[mappingId] = operationGeneration
+        enabledOperations.remove(mappingId)?.cancel()
+
+        val operation = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            mutableUiState.update { state ->
+                state.copy(
+                    updatingEnabledMappingIds = state.updatingEnabledMappingIds + mappingId,
+                    notice = null,
+                )
+            }
+            try {
+                val result = try {
+                    repository.setEnabled(mappingId, enabled)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    SetFolderEnabledResult.StorageFailure
+                }
+                if (enabledOperationGenerations[mappingId] == operationGeneration) {
+                    mutableUiState.update { state -> state.copy(notice = result.notice()) }
+                }
+            } finally {
+                if (enabledOperationGenerations[mappingId] == operationGeneration) {
+                    mutableUiState.update { state ->
+                        state.copy(
+                            updatingEnabledMappingIds =
+                                state.updatingEnabledMappingIds - mappingId,
+                        )
+                    }
+                    enabledOperations.remove(mappingId)
+                }
+            }
+        }
+        enabledOperations[mappingId] = operation
+        operation.start()
     }
 
     suspend fun completePicker(
@@ -218,6 +276,12 @@ class FolderAccessViewModel(
         RemoveFolderResult.Busy -> FolderAccessNotice.PickerBusy
         RemoveFolderResult.GrantFailure -> FolderAccessNotice.RemovalGrantFailure
         RemoveFolderResult.StorageFailure -> FolderAccessNotice.StorageFailure
+    }
+
+    private fun SetFolderEnabledResult.notice(): FolderAccessNotice? = when (this) {
+        SetFolderEnabledResult.Updated -> null
+        SetFolderEnabledResult.MappingNotFound -> FolderAccessNotice.MappingMissing
+        SetFolderEnabledResult.StorageFailure -> FolderAccessNotice.StorageFailure
     }
 
     class Factory(

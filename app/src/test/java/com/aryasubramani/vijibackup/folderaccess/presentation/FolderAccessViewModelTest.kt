@@ -9,6 +9,7 @@ import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerLaunch
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
 import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
+import com.aryasubramani.vijibackup.folderaccess.domain.SetFolderEnabledResult
 import com.aryasubramani.vijibackup.folderaccess.domain.ValidateFolderAccessResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -272,6 +273,149 @@ class FolderAccessViewModelTest {
     }
 
     @Test
+    fun enabledUpdatesRunIndependentlyPerMappingAndExposeStableProgress() = runTest {
+        val firstResult = CompletableDeferred<SetFolderEnabledResult>()
+        val secondResult = CompletableDeferred<SetFolderEnabledResult>()
+        val repository = FakeFolderMappingRepository().apply {
+            setEnabledHandler = { mappingId, _ ->
+                when (mappingId) {
+                    "mapping-a" -> firstResult.await()
+                    "mapping-b" -> secondResult.await()
+                    else -> SetFolderEnabledResult.MappingNotFound
+                }
+            }
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        runCurrent()
+
+        viewModel.setFolderEnabled("mapping-a", false)
+        viewModel.setFolderEnabled("mapping-b", true)
+        runCurrent()
+
+        assertEquals(
+            listOf("mapping-a" to false, "mapping-b" to true),
+            repository.setEnabledCalls,
+        )
+        assertEquals(
+            setOf("mapping-a", "mapping-b"),
+            viewModel.uiState.value.updatingEnabledMappingIds,
+        )
+
+        firstResult.complete(SetFolderEnabledResult.Updated)
+        runCurrent()
+        assertEquals(setOf("mapping-b"), viewModel.uiState.value.updatingEnabledMappingIds)
+
+        secondResult.complete(SetFolderEnabledResult.Updated)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.updatingEnabledMappingIds.isEmpty())
+        assertNull(viewModel.uiState.value.notice)
+    }
+
+    @Test
+    fun enabledUpdateFailuresHaveTypedNonSensitiveNotices() = runTest {
+        val repository = FakeFolderMappingRepository()
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        runCurrent()
+
+        val cases = listOf(
+            SetFolderEnabledResult.MappingNotFound to FolderAccessNotice.MappingMissing,
+            SetFolderEnabledResult.StorageFailure to FolderAccessNotice.StorageFailure,
+        )
+        cases.forEachIndexed { index, (result, expectedNotice) ->
+            repository.setEnabledResult = result
+            viewModel.setFolderEnabled("mapping-$index", enabled = index % 2 == 0)
+            advanceUntilIdle()
+
+            assertEquals(expectedNotice, viewModel.uiState.value.notice)
+            assertTrue(viewModel.uiState.value.updatingEnabledMappingIds.isEmpty())
+        }
+
+        repository.setEnabledFailure = IllegalStateException("sensitive storage detail")
+        viewModel.setFolderEnabled("mapping-exception", false)
+        advanceUntilIdle()
+
+        assertEquals(FolderAccessNotice.StorageFailure, viewModel.uiState.value.notice)
+        assertTrue(viewModel.uiState.value.updatingEnabledMappingIds.isEmpty())
+    }
+
+    @Test
+    fun lateCancelledEnabledUpdateCannotOverwriteOrClearReplacement() = runTest {
+        val firstEntered = CompletableDeferred<Unit>()
+        val finishCancelledFirst = CompletableDeferred<Unit>()
+        val finishReplacement = CompletableDeferred<Unit>()
+        val repository = FakeFolderMappingRepository().apply {
+            setEnabledHandler = { _, enabled ->
+                if (!enabled) {
+                    firstEntered.complete(Unit)
+                    withContext(NonCancellable) {
+                        finishCancelledFirst.await()
+                    }
+                    SetFolderEnabledResult.StorageFailure
+                } else {
+                    finishReplacement.await()
+                    SetFolderEnabledResult.Updated
+                }
+            }
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        runCurrent()
+
+        viewModel.setFolderEnabled("mapping-a", false)
+        runCurrent()
+        assertTrue(firstEntered.isCompleted)
+
+        viewModel.setFolderEnabled("mapping-a", true)
+        runCurrent()
+        assertEquals(setOf("mapping-a"), viewModel.uiState.value.updatingEnabledMappingIds)
+
+        finishCancelledFirst.complete(Unit)
+        runCurrent()
+        assertEquals(setOf("mapping-a"), viewModel.uiState.value.updatingEnabledMappingIds)
+        assertNull(viewModel.uiState.value.notice)
+
+        finishReplacement.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(viewModel.uiState.value.updatingEnabledMappingIds.isEmpty())
+        assertNull(viewModel.uiState.value.notice)
+        assertEquals(
+            listOf("mapping-a" to false, "mapping-a" to true),
+            repository.setEnabledCalls,
+        )
+    }
+
+    @Test
+    fun deactivationInvalidatesEnabledUpdateAndBlocksNewOnes() = runTest {
+        val finishCancelledUpdate = CompletableDeferred<Unit>()
+        val repository = FakeFolderMappingRepository().apply {
+            setEnabledHandler = { _, _ ->
+                withContext(NonCancellable) {
+                    finishCancelledUpdate.await()
+                }
+                SetFolderEnabledResult.StorageFailure
+            }
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        runCurrent()
+
+        viewModel.setFolderEnabled("mapping-a", false)
+        runCurrent()
+        assertEquals(setOf("mapping-a"), viewModel.uiState.value.updatingEnabledMappingIds)
+
+        viewModel.deactivate()
+        viewModel.setFolderEnabled("mapping-b", true)
+        assertTrue(viewModel.uiState.value.updatingEnabledMappingIds.isEmpty())
+
+        finishCancelledUpdate.complete(Unit)
+        advanceUntilIdle()
+        assertNull(viewModel.uiState.value.notice)
+        assertEquals(listOf("mapping-a" to false), repository.setEnabledCalls)
+    }
+
+    @Test
     fun everyPickerCompletionHasAnExplicitNoticeAndForwardsExactSelection() = runTest {
         val repository = FakeFolderMappingRepository()
         val viewModel = FolderAccessViewModel(repository)
@@ -341,12 +485,14 @@ class FolderAccessViewModelTest {
         viewModel.addFolder()
         viewModel.repairFolder("mapping-a")
         viewModel.removeFolder("mapping-a")
+        viewModel.setFolderEnabled("mapping-a", false)
         advanceUntilIdle()
 
         assertEquals(0, repository.observeCalls)
         assertEquals(0, repository.beginAddCalls)
         assertTrue(repository.repairCalls.isEmpty())
         assertTrue(repository.removeCalls.isEmpty())
+        assertTrue(repository.setEnabledCalls.isEmpty())
     }
 
     @Test
@@ -382,11 +528,15 @@ private class FakeFolderMappingRepository : FolderMappingRepository {
     var removeHandler: (suspend (String) -> RemoveFolderResult)? = null
     var beginGate: CompletableDeferred<Unit>? = null
     var removeGate: CompletableDeferred<Unit>? = null
+    var setEnabledResult: SetFolderEnabledResult = SetFolderEnabledResult.StorageFailure
+    var setEnabledFailure: Throwable? = null
+    var setEnabledHandler: (suspend (String, Boolean) -> SetFolderEnabledResult)? = null
     var observeCalls = 0
     var beginAddCalls = 0
     val repairCalls = mutableListOf<String>()
     val completionCalls = mutableListOf<Pair<String, FolderPickerSelection>>()
     val removeCalls = mutableListOf<String>()
+    val setEnabledCalls = mutableListOf<Pair<String, Boolean>>()
 
     override fun observeMappings(): Flow<List<FolderMapping>> {
         observeCalls += 1
@@ -420,6 +570,16 @@ private class FakeFolderMappingRepository : FolderMappingRepository {
 
     override suspend fun validate(mappingId: String): ValidateFolderAccessResult =
         ValidateFolderAccessResult.MappingNotFound
+
+    override suspend fun setEnabled(
+        mappingId: String,
+        enabled: Boolean,
+    ): SetFolderEnabledResult {
+        setEnabledCalls += mappingId to enabled
+        setEnabledHandler?.let { handler -> return handler(mappingId, enabled) }
+        setEnabledFailure?.let { throw it }
+        return setEnabledResult
+    }
 
     override suspend fun remove(mappingId: String): RemoveFolderResult {
         removeCalls += mappingId

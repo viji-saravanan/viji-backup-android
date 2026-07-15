@@ -32,6 +32,7 @@ import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
 import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
+import com.aryasubramani.vijibackup.folderaccess.domain.SetFolderEnabledResult
 import com.aryasubramani.vijibackup.folderaccess.domain.ValidateFolderAccessResult
 import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessTestTags
 import com.aryasubramani.vijibackup.folderaccess.saf.FolderPickerResult
@@ -299,6 +300,11 @@ private class EmptyFolderMappingRepository : FolderMappingRepository {
 
     override suspend fun validate(mappingId: String): ValidateFolderAccessResult =
         ValidateFolderAccessResult.MappingNotFound
+
+    override suspend fun setEnabled(
+        mappingId: String,
+        enabled: Boolean,
+    ): SetFolderEnabledResult = SetFolderEnabledResult.MappingNotFound
 
     override suspend fun remove(mappingId: String): RemoveFolderResult =
         RemoveFolderResult.StorageFailure

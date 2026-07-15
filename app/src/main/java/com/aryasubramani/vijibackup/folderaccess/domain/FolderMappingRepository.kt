@@ -50,6 +50,12 @@ sealed interface RemoveFolderResult {
     data object StorageFailure : RemoveFolderResult
 }
 
+enum class SetFolderEnabledResult {
+    Updated,
+    MappingNotFound,
+    StorageFailure,
+}
+
 enum class PendingFolderCleanupResult {
     Complete,
     RetryRequired,
@@ -67,6 +73,8 @@ interface FolderMappingRepository {
     suspend fun prepareForSignOut(): PendingFolderCleanupResult
 
     suspend fun validate(mappingId: String): ValidateFolderAccessResult
+
+    suspend fun setEnabled(mappingId: String, enabled: Boolean): SetFolderEnabledResult
 
     suspend fun remove(mappingId: String): RemoveFolderResult
 }

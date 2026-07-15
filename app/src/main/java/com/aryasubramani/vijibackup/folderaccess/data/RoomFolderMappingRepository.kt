@@ -19,6 +19,7 @@ import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderAccessValidat
 import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderMetadataReader
 import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
+import com.aryasubramani.vijibackup.folderaccess.domain.SetFolderEnabledResult
 import com.aryasubramani.vijibackup.folderaccess.domain.ValidateFolderAccessResult
 import com.aryasubramani.vijibackup.folderaccess.saf.AcquireReadGrantResult
 import com.aryasubramani.vijibackup.folderaccess.saf.GrantReleaseResult
@@ -142,6 +143,26 @@ class RoomFolderMappingRepository(
             when (val health = accessValidator.validate(mapping.treeUri)) {
                 FolderAccessHealth.Checking -> ValidateFolderAccessResult.StorageFailure
                 else -> ValidateFolderAccessResult.Found(health)
+            }
+        }
+    }
+
+    override suspend fun setEnabled(
+        mappingId: String,
+        enabled: Boolean,
+    ): SetFolderEnabledResult = storageResult(
+        failure = SetFolderEnabledResult.StorageFailure,
+    ) {
+        serialized {
+            val mapping = dao.mappingById(mappingId)
+                ?: return@serialized SetFolderEnabledResult.MappingNotFound
+            if (mapping.enabled == enabled) {
+                return@serialized SetFolderEnabledResult.Updated
+            }
+            if (dao.updateMappingEnabled(mappingId, enabled) == 1) {
+                SetFolderEnabledResult.Updated
+            } else {
+                SetFolderEnabledResult.MappingNotFound
             }
         }
     }
