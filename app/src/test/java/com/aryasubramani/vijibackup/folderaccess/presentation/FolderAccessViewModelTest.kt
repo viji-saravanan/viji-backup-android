@@ -2,6 +2,7 @@ package com.aryasubramani.vijibackup.folderaccess.presentation
 
 import com.aryasubramani.vijibackup.auth.presentation.MainDispatcherRule
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
+import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderScanResult
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMapping
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
@@ -570,6 +571,9 @@ private class FakeFolderMappingRepository : FolderMappingRepository {
 
     override suspend fun validate(mappingId: String): ValidateFolderAccessResult =
         ValidateFolderAccessResult.MappingNotFound
+
+    override suspend fun beginScan(mappingId: String): BeginFolderScanResult =
+        BeginFolderScanResult.MappingNotFound
 
     override suspend fun setEnabled(
         mappingId: String,

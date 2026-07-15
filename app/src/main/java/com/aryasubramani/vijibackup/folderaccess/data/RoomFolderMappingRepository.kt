@@ -9,6 +9,7 @@ import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationE
 import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationState
 import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationType
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
+import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderScanResult
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderAccessHealth
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMapping
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMappingRepository
@@ -17,6 +18,7 @@ import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerLaunch
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
 import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderAccessValidator
 import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderMetadataReader
+import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderScanner
 import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
 import com.aryasubramani.vijibackup.folderaccess.domain.SetFolderEnabledResult
@@ -44,6 +46,7 @@ class RoomFolderMappingRepository(
     private val grantManager: LocalFolderGrantManager,
     private val metadataReader: LocalFolderMetadataReader,
     private val accessValidator: LocalFolderAccessValidator,
+    private val scanner: LocalFolderScanner,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val requestTokenFactory: () -> String = { UUID.randomUUID().toString() },
     private val mappingIdFactory: () -> String = { UUID.randomUUID().toString() },
@@ -143,6 +146,23 @@ class RoomFolderMappingRepository(
             when (val health = accessValidator.validate(mapping.treeUri)) {
                 FolderAccessHealth.Checking -> ValidateFolderAccessResult.StorageFailure
                 else -> ValidateFolderAccessResult.Found(health)
+            }
+        }
+    }
+
+    override suspend fun beginScan(mappingId: String): BeginFolderScanResult = storageResult(
+        failure = BeginFolderScanResult.StorageFailure,
+    ) {
+        withContext(ioDispatcher) {
+            ensureInitialized()
+            val mapping = dao.mappingById(mappingId)
+                ?: return@withContext BeginFolderScanResult.MappingNotFound
+            when (val health = accessValidator.validate(mapping.treeUri)) {
+                FolderAccessHealth.Ready -> BeginFolderScanResult.Ready(
+                    scanner.scan(mapping.treeUri),
+                )
+                FolderAccessHealth.Checking -> BeginFolderScanResult.StorageFailure
+                else -> BeginFolderScanResult.AccessUnavailable(health)
             }
         }
     }

@@ -26,6 +26,7 @@ import com.aryasubramani.vijibackup.auth.google.GoogleSignInMode
 import com.aryasubramani.vijibackup.auth.google.GoogleSignInResult
 import com.aryasubramani.vijibackup.auth.presentation.AuthTestTags
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
+import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderScanResult
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMapping
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
@@ -300,6 +301,9 @@ private class EmptyFolderMappingRepository : FolderMappingRepository {
 
     override suspend fun validate(mappingId: String): ValidateFolderAccessResult =
         ValidateFolderAccessResult.MappingNotFound
+
+    override suspend fun beginScan(mappingId: String): BeginFolderScanResult =
+        BeginFolderScanResult.MappingNotFound
 
     override suspend fun setEnabled(
         mappingId: String,

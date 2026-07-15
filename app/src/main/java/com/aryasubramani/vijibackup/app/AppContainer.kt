@@ -16,8 +16,10 @@ import com.aryasubramani.vijibackup.folderaccess.data.RoomFolderMappingRepositor
 import com.aryasubramani.vijibackup.folderaccess.data.db.VijiBackupDatabase
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderAccessValidator
+import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderDocumentSource
 import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderGrantManager
 import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderMetadataReader
+import com.aryasubramani.vijibackup.folderaccess.saf.IterativeLocalFolderScanner
 
 interface AppContainer {
     val authSessionManager: AuthSessionManager
@@ -72,6 +74,11 @@ internal class DefaultAppContainer(context: Context) : AppContainer {
             ),
             accessValidator = ContentResolverLocalFolderAccessValidator(
                 contentResolver = applicationContext.contentResolver,
+            ),
+            scanner = IterativeLocalFolderScanner(
+                documentSource = ContentResolverLocalFolderDocumentSource(
+                    contentResolver = applicationContext.contentResolver,
+                ),
             ),
         )
     }

@@ -50,6 +50,15 @@ sealed interface RemoveFolderResult {
     data object StorageFailure : RemoveFolderResult
 }
 
+sealed interface BeginFolderScanResult {
+    data class Ready(val events: Flow<FolderScanEvent>) : BeginFolderScanResult
+    data class AccessUnavailable(
+        val health: FolderAccessHealth,
+    ) : BeginFolderScanResult
+    data object MappingNotFound : BeginFolderScanResult
+    data object StorageFailure : BeginFolderScanResult
+}
+
 enum class SetFolderEnabledResult {
     Updated,
     MappingNotFound,
@@ -73,6 +82,8 @@ interface FolderMappingRepository {
     suspend fun prepareForSignOut(): PendingFolderCleanupResult
 
     suspend fun validate(mappingId: String): ValidateFolderAccessResult
+
+    suspend fun beginScan(mappingId: String): BeginFolderScanResult
 
     suspend fun setEnabled(mappingId: String, enabled: Boolean): SetFolderEnabledResult
 

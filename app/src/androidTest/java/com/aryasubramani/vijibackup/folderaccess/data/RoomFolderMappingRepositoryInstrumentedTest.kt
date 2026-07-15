@@ -11,11 +11,15 @@ import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationS
 import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationType
 import com.aryasubramani.vijibackup.folderaccess.data.db.VijiBackupDatabase
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
+import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderScanResult
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderAccessHealth
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanEvent
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanProgress
 import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderAccessValidator
 import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderMetadataReader
+import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderScanner
 import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
 import com.aryasubramani.vijibackup.folderaccess.domain.SetFolderEnabledResult
@@ -30,6 +34,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -46,6 +52,7 @@ class RoomFolderMappingRepositoryInstrumentedTest {
     private lateinit var grants: RecordingGrantManager
     private lateinit var metadata: RecordingFolderMetadataReader
     private lateinit var accessValidator: RecordingFolderAccessValidator
+    private lateinit var scanner: RecordingLocalFolderScanner
     private lateinit var repository: RoomFolderMappingRepository
     private val requestTokens = ArrayDeque(listOf("request-a", "request-b", "request-c"))
     private val mappingIds = ArrayDeque(listOf("mapping-a", "mapping-b", "mapping-c"))
@@ -61,11 +68,13 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         grants = RecordingGrantManager()
         metadata = RecordingFolderMetadataReader()
         accessValidator = RecordingFolderAccessValidator()
+        scanner = RecordingLocalFolderScanner()
         repository = RoomFolderMappingRepository(
             dao = database.folderAccessDao(),
             grantManager = grants,
             metadataReader = metadata,
             accessValidator = accessValidator,
+            scanner = scanner,
             ioDispatcher = Dispatchers.IO,
             requestTokenFactory = { requestTokens.removeFirst() },
             mappingIdFactory = { mappingIds.removeFirst() },
@@ -192,6 +201,81 @@ class RoomFolderMappingRepositoryInstrumentedTest {
             ValidateFolderAccessResult.Found(FolderAccessHealth.PermissionMissing),
             repository.validate("mapping-health"),
         )
+    }
+
+    @Test
+    fun beginScanValidatesExactMappingAndAllowsDisabledReadyMapping() = runTest {
+        val treeUri = "content://provider.test/tree/scan-ready"
+        database.folderAccessDao().insertMapping(
+            mapping("mapping-scan", treeUri).copy(enabled = false),
+        )
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.Ready
+        scanner.eventsByTreeUri[treeUri] = listOf(
+            FolderScanEvent.Progress(FolderScanProgress(filesDiscovered = 1)),
+        )
+
+        val result = repository.beginScan("mapping-scan") as BeginFolderScanResult.Ready
+
+        assertEquals(scanner.eventsByTreeUri.getValue(treeUri), result.events.toList())
+        assertEquals(listOf(treeUri), accessValidator.requests)
+        assertEquals(listOf(treeUri), scanner.requests)
+    }
+
+    @Test
+    fun beginScanRejectsEveryUnavailableHealthBeforeScannerCreation() = runTest {
+        val unavailableHealth = FolderAccessHealth.entries -
+            setOf(FolderAccessHealth.Checking, FolderAccessHealth.Ready)
+
+        unavailableHealth.forEachIndexed { index, health ->
+            val mappingId = "mapping-unavailable-$index"
+            val treeUri = "content://provider.test/tree/scan-unavailable-$index"
+            database.folderAccessDao().insertMapping(mapping(mappingId, treeUri))
+            accessValidator.healthByTreeUri[treeUri] = health
+
+            assertEquals(
+                BeginFolderScanResult.AccessUnavailable(health),
+                repository.beginScan(mappingId),
+            )
+        }
+
+        assertTrue(scanner.requests.isEmpty())
+    }
+
+    @Test
+    fun beginScanMissingCheckingAndAdapterFailureAreTypedWithoutScannerWork() = runTest {
+        assertEquals(
+            BeginFolderScanResult.MappingNotFound,
+            repository.beginScan("missing-mapping"),
+        )
+
+        val treeUri = "content://provider.test/tree/scan-checking"
+        database.folderAccessDao().insertMapping(mapping("mapping-scan", treeUri))
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.Checking
+        assertEquals(
+            BeginFolderScanResult.StorageFailure,
+            repository.beginScan("mapping-scan"),
+        )
+
+        accessValidator.failure = IllegalStateException("sensitive-provider-detail")
+        assertEquals(
+            BeginFolderScanResult.StorageFailure,
+            repository.beginScan("mapping-scan"),
+        )
+        assertTrue(scanner.requests.isEmpty())
+    }
+
+    @Test
+    fun beginScanCancellationPropagatesAndCanBeRetried() = runTest {
+        val treeUri = "content://provider.test/tree/scan-cancel"
+        database.folderAccessDao().insertMapping(mapping("mapping-scan", treeUri))
+        accessValidator.failure = CancellationException("test cancellation")
+
+        assertInitializationCancelled { repository.beginScan("mapping-scan") }
+
+        accessValidator.failure = null
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.Ready
+        assertTrue(repository.beginScan("mapping-scan") is BeginFolderScanResult.Ready)
+        assertEquals(listOf(treeUri), scanner.requests)
     }
 
     @Test
@@ -842,6 +926,7 @@ class RoomFolderMappingRepositoryInstrumentedTest {
             grantManager = grants,
             metadataReader = metadata,
             accessValidator = accessValidator,
+            scanner = scanner,
             ioDispatcher = Dispatchers.IO,
             requestTokenFactory = { requestTokens.removeFirst() },
             mappingIdFactory = {
@@ -986,6 +1071,17 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         const val TEST_DATABASE_NAME = "folder_mapping_repository_test.db"
         const val PENDING_TIMEOUT_MS = 24L * 60L * 60L * 1_000L
         const val NOW_EPOCH_MS = PENDING_TIMEOUT_MS * 2L
+    }
+}
+
+private class RecordingLocalFolderScanner : LocalFolderScanner {
+    val requests = mutableListOf<String>()
+    val eventsByTreeUri = mutableMapOf<String, List<FolderScanEvent>>()
+
+    override fun scan(treeUri: String) = flowOf(
+        *eventsByTreeUri.getOrElse(treeUri) { emptyList() }.toTypedArray(),
+    ).also {
+        requests += treeUri
     }
 }
 
