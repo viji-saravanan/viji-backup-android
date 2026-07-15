@@ -87,13 +87,19 @@ Implemented Phase 3 slices:
 - durable idempotent enable/disable state with typed repository failures,
   per-mapping generation ownership, independent concurrent updates, and no
   health-validator or grant side effects;
+- cold iterative read-only metadata scanning with cycle detection, saturating
+  aggregate progress, exact complete/partial/failed decisions, cancellation
+  propagation, and no filename or raw-identifier output;
+- resolver-owned cursor and cancellation-signal lifetimes with Samsung-tested
+  null, malformed, loading, provider-failure, cancellation, retry, and
+  no-mutation behavior in both flavors;
 - a disabled, variant-safe test-only provider manifest plus physical Samsung
   fault-path coverage without source-content mutations or test-process startup
   crashes.
 
 Not yet implemented after the integrated Phase 3 slices:
 
-- iterative metadata scan, scan progress, cancellation, and per-mapping isolation;
+- repository/UI scan admission, progress, cancellation, and per-mapping isolation;
 - enable/disable UI controls and scan controls;
 - Google Drive authorization or destination access;
 - any selected-folder sync behavior;
@@ -241,6 +247,17 @@ Additional Phase 3 enablement evidence on 2026-07-15:
   classloader failure;
 - both-flavor JVM tests, app assembly, and Android-test APK assembly passed;
 - disabled-but-ready manual scan remains a Task 6 gate and is not yet claimed.
+
+Additional Phase 3 scanner evidence on 2026-07-15:
+
+- missing scanner contracts and missing hostile-provider controls were
+  witnessed RED before implementation;
+- all 14 pure iterative-scanner tests passed for both flavors;
+- all 7 resolver-facing scanner tests passed directly on Samsung user 0 for
+  both internal and public flavors, and all 29 validator tests passed again;
+- the complete two-flavor JVM, app APK, and Android-test APK matrix passed;
+- whole-Downloads support is now a confirmed final-app requirement, but remains
+  a separate explicit all-files-access source rather than a false SAF claim.
 
 ## Current Passing Checks
 

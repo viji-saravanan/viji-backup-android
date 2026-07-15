@@ -51,9 +51,11 @@ The app should store stable Drive file IDs for folders and files when available.
 Use Android's folder picker for local folders. The app only supports folders that Android allows the user to grant. If Android blocks a folder, the app must explain that the folder cannot be backed up directly.
 
 On Android 11 and newer, the SAF picker blocks the exact Downloads root even
-though it can allow a user-created subfolder beneath Downloads. A future full
-Downloads source requires a separately approved all-files-access adapter; it is
-not an extension of the existing SAF picker.
+though it can allow a user-created subfolder beneath Downloads. Whole-Downloads
+coverage is mandatory for the final app and requires a separate, explicit
+all-files-access adapter after the SAF completion slice. It is not an extension
+of the existing picker and must have independent consent, revocation, and
+read-only tests.
 
 The app should persist granted URI permissions and detect when a permission is lost, revoked, or no longer points to readable content.
 

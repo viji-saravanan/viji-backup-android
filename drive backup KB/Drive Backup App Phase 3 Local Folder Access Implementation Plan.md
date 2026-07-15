@@ -65,9 +65,10 @@ Phase 3 must not be described as complete yet.
   It never deletes local or future Drive content.
 - Exact duplicate mappings are rejected. Parent/child overlap policy belongs to
   Phase 5, where duplicate upload and destination semantics are available.
-- The current SAF source accepts only locations the system picker grants. It
-  does not request broad storage access. A dedicated full-Downloads source is a
-  separate unresolved product/security decision.
+- The current SAF source accepts only locations the system picker grants and
+  does not request broad storage access. The final app must also support the
+  exact Downloads root through a separate, explicit all-files-access source;
+  that follow-on must not weaken or masquerade as the SAF permission model.
 
 ## Non-Negotiable Android Limits
 
@@ -81,9 +82,11 @@ folder picker does not grant tree access to:
 - `Android/obb` or any descendant.
 
 A subfolder inside Downloads can be selected when the provider permits it. The
-exact Downloads root cannot be promised under the chosen SAF model. Adding
-`MANAGE_EXTERNAL_STORAGE` would be a separate security and product decision and
-must not be introduced silently in this phase.
+exact Downloads root cannot be granted under the chosen SAF model. The user has
+confirmed whole-Downloads coverage is mandatory for the final app, so a later
+source must use an explicit `MANAGE_EXTERNAL_STORAGE` settings flow, remain
+read-only in app code, detect revocation, and receive separate Samsung
+acceptance. It must not be introduced silently in this phase.
 
 `Intent.EXTRA_LOCAL_ONLY` narrows the picker toward local providers, but Android
 documents it as a hint. It is not proof that a returned tree is primary internal

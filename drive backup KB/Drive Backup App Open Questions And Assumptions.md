@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-open-questions-assumptions
 status: active
-last_updated: 2026-07-13
+last_updated: 2026-07-15
 context_role: assumptions
 read_when:
   - The agent needs unresolved decisions, risks, or assumptions.
@@ -34,6 +34,9 @@ do_not_read_when:
 - Every configured approved account is a trusted co-administrator of this installation's folder mappings until profile ownership is designed.
 - Selecting an exact duplicate tree is rejected. Parent-child overlap detection is deferred to Phase 5, where sync path semantics exist.
 - Android 11 and newer block storage roots, the Downloads root, `Android/data`, and `Android/obb` in the SAF picker; users can choose an eligible subfolder instead.
+- Whole-Downloads backup is mandatory for the final app. Implement it after the
+  SAF completion slice as a separately disclosed, opt-in, read-only
+  all-files-access source with revocation and physical-device tests.
 - Phase 3 acceptance requires the physical Samsung and its real folders. Live Drive authorization and upload acceptance begin in Phase 4 because Phase 3 production code makes no Drive request.
 
 ## Assumptions
@@ -57,7 +60,6 @@ do_not_read_when:
 | Should the public APK gate users with opaque Google subject identifiers, a server-side policy, or the authoritative Drive ACL? | Plain email allowlists injected into an APK can still be extracted even when absent from Git. | Before public release |
 | Should MVP preserve old remote versions before overwrite? Recommended answer: yes, keep last 3 versions or 30 days, whichever is smaller. | Protects against corrupt or unwanted local changes being uploaded over the only good backup; costs Drive storage. | Before changed-file upload implementation |
 | Should MVP include basic exclusions only, or full include/exclude pattern rules? Recommended answer: basic exclusions only. | Full pattern rules are useful but can delay the core backup engine. | Before settings implementation |
-| Is backing up the exact Downloads root mandatory? Recommended answer: yes only if the user accepts a separate opt-in all-files-access source with broad shared-storage visibility; otherwise support selectable Downloads subfolders only. | Android 11+ deliberately blocks Downloads-root SAF selection. `MANAGE_EXTERNAL_STORAGE` can support backup apps but materially expands access and testing/security obligations. | Before implementing the next folder source type |
 
 ## Risk Register
 
