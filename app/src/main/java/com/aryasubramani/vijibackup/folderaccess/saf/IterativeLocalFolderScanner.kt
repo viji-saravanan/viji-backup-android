@@ -26,6 +26,8 @@ internal class IterativeLocalFolderScanner(
 
         val rootDocumentId = try {
             documentSource.rootDocumentId(treeUri)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             null
         }

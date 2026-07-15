@@ -42,6 +42,32 @@ class IterativeLocalFolderScannerTest {
     }
 
     @Test
+    fun cancellationDuringRootLookupPropagatesWithoutTerminalEvent() = runTest {
+        val source = object : LocalFolderDocumentSource {
+            override fun rootDocumentId(treeUri: String): String? {
+                throw CancellationException("cancelled root lookup")
+            }
+
+            override suspend fun queryChildren(
+                treeUri: String,
+                parentDocumentId: String,
+                onDocument: suspend (FolderDocumentMetadata) -> Unit,
+            ): FolderDocumentQueryResult = error("Query must not start")
+        }
+        val events = mutableListOf<FolderScanEvent>()
+        var observedCancellation: CancellationException? = null
+
+        try {
+            scanner(source).scan(TREE_URI).toList(events)
+        } catch (cancelled: CancellationException) {
+            observedCancellation = cancelled
+        }
+
+        assertTrue(observedCancellation != null)
+        assertTrue(events.none { it.isTerminal() })
+    }
+
+    @Test
     fun emptyTreeCompletesAndCountsTheReturnedRootCursor() = runTest {
         val source = RecordingDocumentSource()
 
