@@ -132,13 +132,19 @@ A retry-required result maps to a non-sensitive signed-out warning. A picker
 callback observed after `SigningOut` begins is discarded and its retained
 activity token is cleared.
 
-- [ ] Write repository tests for requested, staged, same-URI referenced, release
+- [x] Write repository tests for requested, staged, same-URI referenced, release
   failure, cancellation, retry, and concurrent callback ordering.
-- [ ] Run the focused tests and confirm they fail because the interface and
+- [x] Run the focused tests and confirm they fail because the interface and
   compensation path do not exist.
-- [ ] Implement the minimum serialized compensation and auth ordering.
-- [ ] Run repository, auth ViewModel, and app-composition tests to green.
-- [ ] Review the diff for auth lifecycle and grant-reference regressions.
+- [x] Implement the minimum serialized compensation and auth ordering.
+- [x] Run repository, auth ViewModel, and app-composition tests to green.
+- [x] Review the diff for auth lifecycle and grant-reference regressions.
+
+Completed in `66a3114` and `8eee747`. The review found a second-order race in
+which a late pre-sign-out result could consume a post-sign-in replacement.
+Per-launch Activity Result registry keys now survive recreation, retired
+callbacks are consumed only by their original key, and the replacement remains
+untouched. The final related Samsung user-0 suite passed 58 tests.
 
 ## Task 2: Typed Live Folder Access Health
 

@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-project-state
 status: active
-last_updated: 2026-07-14
+last_updated: 2026-07-15
 context_role: current-state
 read_when:
   - The agent needs to understand the current local scaffold before implementation.
@@ -73,10 +73,15 @@ Implemented Phase 3 slices:
   and disabled competing mutations;
 - process-scope auth regression coverage proving Home, picker round trips, and
   activity recreation do not repeatedly invoke Google sign-in.
+- sign-out compensation that serializes and retries pending picker cleanup
+  before local auth state is cleared, without blocking sign-out on one cleanup
+  failure;
+- per-launch picker callback identity that discards a retired pre-sign-out
+  result without consuming a post-sign-in replacement, including activity
+  recreation.
 
 Not yet implemented after the integrated Phase 3 slices:
 
-- pending-picker compensation ordered before app sign-out;
 - live root health classification and permission-loss repair state;
 - iterative metadata scan, scan progress, cancellation, and per-mapping isolation;
 - enable/disable controls and scan controls;
@@ -194,6 +199,14 @@ Observed on 2026-07-11, with the ADB connection reverified on 2026-07-13:
 - Gradle emits a non-fatal `androidx.test.services` app-ops warning before
   connected tests; accept it only when every test starts, finishes, and reports
   zero failures.
+
+Additional Phase 3 lifecycle evidence on 2026-07-15:
+
+- the review-discovered sign-out, recreation, re-sign-in, replacement-picker,
+  and late-old-result sequence was witnessed failing before the fix;
+- the focused 7-test state/composition suite and related 58-test repository,
+  state, composition, and auth UI suite passed directly on Samsung user 0;
+- both-flavor JVM tests, app and Android-test APK assembly, and lint passed.
 
 ## Current Passing Checks
 
