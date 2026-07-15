@@ -5,6 +5,7 @@
         <provider
             android:name="com.aryasubramani.vijibackup.folderaccess.saf.ControllableDocumentsProvider"
             android:authorities="${applicationId}.documents"
+            android:enabled="false"
             android:exported="true"
             android:grantUriPermissions="true"
             android:permission="android.permission.MANAGE_DOCUMENTS">

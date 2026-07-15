@@ -70,22 +70,19 @@ class ContentResolverLocalFolderAccessValidatorInstrumentedTest {
     }
 
     @Test
-    fun installedProviderManifestUsesVariantSafeProtectedAuthority() {
+    fun installedProviderManifestIsDisabledWithVariantSafeProtectedAuthority() {
         val testContext = InstrumentationRegistry.getInstrumentation().context
         val providerInfo = testContext.packageManager.getProviderInfo(
             ComponentName(testContext.packageName, ControllableDocumentsProvider::class.java.name),
-            PackageManager.GET_META_DATA,
+            PackageManager.MATCH_DISABLED_COMPONENTS,
         )
 
         assertEquals(authority, providerInfo.authority)
+        assertEquals(false, providerInfo.enabled)
         assertTrue(providerInfo.exported)
         assertTrue(providerInfo.grantUriPermissions)
         assertEquals(Manifest.permission.MANAGE_DOCUMENTS, providerInfo.readPermission)
         assertEquals(Manifest.permission.MANAGE_DOCUMENTS, providerInfo.writePermission)
-        assertEquals(
-            providerInfo.packageName,
-            testContext.packageManager.resolveContentProvider(authority, 0)?.packageName,
-        )
     }
 
     @Test
