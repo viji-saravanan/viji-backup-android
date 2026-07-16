@@ -28,6 +28,11 @@ import com.aryasubramani.vijibackup.auth.google.GoogleSignInClient
 import com.aryasubramani.vijibackup.auth.google.GoogleSignInMode
 import com.aryasubramani.vijibackup.auth.google.GoogleSignInResult
 import com.aryasubramani.vijibackup.auth.presentation.AuthTestTags
+import com.aryasubramani.vijibackup.downloadsaccess.data.DownloadsSourceConfiguration
+import com.aryasubramani.vijibackup.downloadsaccess.data.DownloadsSourceStore
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessManager
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessPlatform
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessProbe
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderScanResult
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMapping
@@ -72,6 +77,10 @@ class AppCompositionInstrumentedTest {
         assertSame(
             application.appContainer.folderMappingRepository,
             application.appContainer.folderMappingRepository,
+        )
+        assertSame(
+            application.appContainer.downloadsAccessManager,
+            application.appContainer.downloadsAccessManager,
         )
     }
 
@@ -131,6 +140,7 @@ class AppCompositionInstrumentedTest {
                 GoogleSignInResult.Success(account)
             }
             override val folderMappingRepository = folderRepository
+            override val downloadsAccessManager = testDownloadsAccessManager()
             override val isGoogleSignInConfigured = true
         }
         application.testAppContainer = fakeContainer
@@ -188,6 +198,7 @@ class AppCompositionInstrumentedTest {
                 error("Cached session must not request a Google credential")
             }
             override val folderMappingRepository = folderRepository
+            override val downloadsAccessManager = testDownloadsAccessManager()
             override val isGoogleSignInConfigured = true
         }
         application.testAppContainer = fakeContainer
@@ -231,6 +242,7 @@ class AppCompositionInstrumentedTest {
                 error("Sign-in is not expected")
             }
             override val folderMappingRepository = folderRepository
+            override val downloadsAccessManager = testDownloadsAccessManager()
             override val isGoogleSignInConfigured = false
         }
         application.testAppContainer = fakeContainer
@@ -326,6 +338,7 @@ class AppCompositionInstrumentedTest {
                 GoogleSignInResult.Success(account)
             }
             override val folderMappingRepository = folderRepository
+            override val downloadsAccessManager = testDownloadsAccessManager()
             override val isGoogleSignInConfigured = true
         }
         application.testAppContainer = fakeContainer
@@ -482,6 +495,27 @@ private class InMemoryAuthSessionStore(
         account = null
     }
 }
+
+private fun testDownloadsAccessManager() = DownloadsAccessManager(
+    store = object : DownloadsSourceStore {
+        private var configuration = DownloadsSourceConfiguration()
+
+        override suspend fun read(): DownloadsSourceConfiguration = configuration
+
+        override suspend fun write(configuration: DownloadsSourceConfiguration) {
+            this.configuration = configuration
+        }
+    },
+    accessProbe = object : DownloadsAccessProbe {
+        override val platform = DownloadsAccessPlatform.AllFiles
+
+        override fun hasAccess() = false
+
+        override fun isPrimaryStorageAvailable() = true
+
+        override fun isDownloadsRootReadable() = true
+    },
+)
 
 private fun approvedAccount() = requireNotNull(
     GoogleAccount.create(

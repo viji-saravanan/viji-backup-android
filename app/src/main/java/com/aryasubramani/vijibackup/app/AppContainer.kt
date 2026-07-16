@@ -12,6 +12,10 @@ import com.aryasubramani.vijibackup.auth.domain.AccountAccessPolicy
 import com.aryasubramani.vijibackup.auth.google.CredentialManagerCredentialStateClearer
 import com.aryasubramani.vijibackup.auth.google.CredentialManagerGoogleSignInClient
 import com.aryasubramani.vijibackup.auth.google.GoogleSignInClient
+import com.aryasubramani.vijibackup.downloadsaccess.data.DataStoreDownloadsSourceStore
+import com.aryasubramani.vijibackup.downloadsaccess.data.downloadsSourceDataStore
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessManager
+import com.aryasubramani.vijibackup.downloadsaccess.platform.AndroidDownloadsAccessProbe
 import com.aryasubramani.vijibackup.folderaccess.data.RoomFolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.data.DataStoreSignOutCleanupIntentStore
 import com.aryasubramani.vijibackup.folderaccess.data.signOutCleanupIntentDataStore
@@ -27,6 +31,7 @@ interface AppContainer {
     val authSessionManager: AuthSessionManager
     val googleSignInClient: GoogleSignInClient
     val folderMappingRepository: FolderMappingRepository
+    val downloadsAccessManager: DownloadsAccessManager
     val isGoogleSignInConfigured: Boolean
 }
 
@@ -87,4 +92,9 @@ internal class DefaultAppContainer(context: Context) : AppContainer {
             ),
         )
     }
+
+    override val downloadsAccessManager = DownloadsAccessManager(
+        store = DataStoreDownloadsSourceStore(applicationContext.downloadsSourceDataStore),
+        accessProbe = AndroidDownloadsAccessProbe(),
+    )
 }
