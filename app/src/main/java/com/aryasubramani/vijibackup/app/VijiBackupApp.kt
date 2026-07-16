@@ -32,6 +32,8 @@ import com.aryasubramani.vijibackup.auth.presentation.AuthGateContent
 import com.aryasubramani.vijibackup.auth.presentation.AuthStatusContent
 import com.aryasubramani.vijibackup.auth.presentation.AuthTestTags
 import com.aryasubramani.vijibackup.auth.presentation.AuthUiState
+import com.aryasubramani.vijibackup.downloadsaccess.presentation.DownloadsAccessContent
+import com.aryasubramani.vijibackup.downloadsaccess.presentation.DownloadsAccessUiState
 import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessContent
 import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessUiState
 import com.aryasubramani.vijibackup.ui.theme.VijiBackupTheme
@@ -40,6 +42,7 @@ import com.aryasubramani.vijibackup.ui.theme.VijiBackupTheme
 fun VijiBackupApp(
     uiState: AuthUiState,
     folderAccessUiState: FolderAccessUiState = FolderAccessUiState(),
+    downloadsAccessUiState: DownloadsAccessUiState = DownloadsAccessUiState(),
     onSignIn: () -> Unit,
     onRetry: () -> Unit,
     onSignOut: () -> Unit,
@@ -50,6 +53,11 @@ fun VijiBackupApp(
     onSetFolderEnabled: (String, Boolean) -> Unit = { _, _ -> },
     onScanFolder: (String) -> Unit = {},
     onCancelScan: (String) -> Unit = {},
+    onRequestDownloadsAccess: () -> Unit = {},
+    onReviewDownloadsPermission: () -> Unit = {},
+    onSetDownloadsEnabled: (Boolean) -> Unit = {},
+    onRemoveDownloads: () -> Unit = {},
+    onRefreshDownloads: () -> Unit = {},
 ) {
     VijiBackupTheme {
         Surface(
@@ -84,6 +92,7 @@ fun VijiBackupApp(
                         ApprovedContent(
                             uiState = uiState,
                             folderAccessUiState = folderAccessUiState,
+                            downloadsAccessUiState = downloadsAccessUiState,
                             onSignOut = onSignOut,
                             onChangeAccount = onChangeAccount,
                             onAddFolder = onAddFolder,
@@ -92,6 +101,11 @@ fun VijiBackupApp(
                             onSetFolderEnabled = onSetFolderEnabled,
                             onScanFolder = onScanFolder,
                             onCancelScan = onCancelScan,
+                            onRequestDownloadsAccess = onRequestDownloadsAccess,
+                            onReviewDownloadsPermission = onReviewDownloadsPermission,
+                            onSetDownloadsEnabled = onSetDownloadsEnabled,
+                            onRemoveDownloads = onRemoveDownloads,
+                            onRefreshDownloads = onRefreshDownloads,
                         )
                     } else {
                         AuthGateContent(
@@ -110,6 +124,7 @@ fun VijiBackupApp(
 private fun ApprovedContent(
     uiState: AuthUiState.Approved,
     folderAccessUiState: FolderAccessUiState,
+    downloadsAccessUiState: DownloadsAccessUiState,
     onSignOut: () -> Unit,
     onChangeAccount: () -> Unit,
     onAddFolder: () -> Unit,
@@ -118,6 +133,11 @@ private fun ApprovedContent(
     onSetFolderEnabled: (String, Boolean) -> Unit,
     onScanFolder: (String) -> Unit,
     onCancelScan: (String) -> Unit,
+    onRequestDownloadsAccess: () -> Unit,
+    onReviewDownloadsPermission: () -> Unit,
+    onSetDownloadsEnabled: (Boolean) -> Unit,
+    onRemoveDownloads: () -> Unit,
+    onRefreshDownloads: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -146,6 +166,16 @@ private fun ApprovedContent(
         ) {
             Text(stringResource(R.string.auth_sign_out_action))
         }
+        Spacer(Modifier.height(32.dp))
+        DownloadsAccessContent(
+            uiState = downloadsAccessUiState,
+            onRequestAccess = onRequestDownloadsAccess,
+            onReviewPermission = onReviewDownloadsPermission,
+            onSetEnabled = onSetDownloadsEnabled,
+            onRemove = onRemoveDownloads,
+            onUseSafPicker = onAddFolder,
+            onRefresh = onRefreshDownloads,
+        )
         Spacer(Modifier.height(32.dp))
         FolderAccessContent(
             uiState = folderAccessUiState,

@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.LaunchedEffect
@@ -19,6 +20,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.aryasubramani.vijibackup.auth.presentation.AuthUiState
 import com.aryasubramani.vijibackup.auth.presentation.AuthViewModel
+import com.aryasubramani.vijibackup.downloadsaccess.platform.AndroidDownloadsAccessSettingsIntentFactory
+import com.aryasubramani.vijibackup.downloadsaccess.presentation.DownloadsAccessViewModel
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerLaunch
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
 import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessViewModel
@@ -55,6 +58,17 @@ class MainActivity : ComponentActivity() {
     private val folderAccessViewModel by viewModels<FolderAccessViewModel> {
         FolderAccessViewModel.Factory(appContainer.folderMappingRepository)
     }
+    private val downloadsAccessViewModel by viewModels<DownloadsAccessViewModel> {
+        DownloadsAccessViewModel.Factory(appContainer.downloadsAccessManager)
+    }
+    private val downloadsSettingsIntentFactory by lazy(LazyThreadSafetyMode.NONE) {
+        AndroidDownloadsAccessSettingsIntentFactory(this)
+    }
+    private val downloadsSettingsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        downloadsAccessViewModel.onSettingsResult()
+    }
     private val credentialRequestDispatcher by lazy(LazyThreadSafetyMode.NONE) {
         AuthCredentialRequestDispatcher(
             coroutineScope = lifecycleScope,
@@ -83,6 +97,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val uiState by authViewModel.uiState.collectAsStateWithLifecycle()
             val folderAccessUiState by folderAccessViewModel.uiState.collectAsStateWithLifecycle()
+            val downloadsAccessUiState by
+                downloadsAccessViewModel.uiState.collectAsStateWithLifecycle()
             val signInRequest = (uiState as? AuthUiState.SigningIn)?.request
 
             LaunchedEffect(uiState) {
@@ -91,8 +107,10 @@ class MainActivity : ComponentActivity() {
                 }
                 if (uiState is AuthUiState.Approved) {
                     folderAccessViewModel.activate()
+                    downloadsAccessViewModel.activate()
                 } else {
                     folderAccessViewModel.deactivate()
+                    downloadsAccessViewModel.deactivate()
                 }
             }
             LaunchedEffect(signInRequest?.id) {
@@ -108,10 +126,29 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            LaunchedEffect(Unit) {
+                downloadsAccessViewModel.settingsLaunches.collect { request ->
+                    if (authViewModel.uiState.value !is AuthUiState.Approved) {
+                        downloadsAccessViewModel.onSettingsLaunchFailed(request.id)
+                        return@collect
+                    }
+                    val intent = downloadsSettingsIntentFactory.create()
+                    if (intent == null) {
+                        downloadsAccessViewModel.onSettingsLaunchFailed(request.id)
+                        return@collect
+                    }
+                    try {
+                        downloadsSettingsLauncher.launch(intent)
+                    } catch (_: Exception) {
+                        downloadsAccessViewModel.onSettingsLaunchFailed(request.id)
+                    }
+                }
+            }
 
             VijiBackupApp(
                 uiState = uiState,
                 folderAccessUiState = folderAccessUiState,
+                downloadsAccessUiState = downloadsAccessUiState,
                 onSignIn = authViewModel::signIn,
                 onRetry = authViewModel::retry,
                 onSignOut = ::signOut,
@@ -122,6 +159,11 @@ class MainActivity : ComponentActivity() {
                 onSetFolderEnabled = folderAccessViewModel::setFolderEnabled,
                 onScanFolder = folderAccessViewModel::scanFolder,
                 onCancelScan = folderAccessViewModel::cancelScan,
+                onRequestDownloadsAccess = downloadsAccessViewModel::requestAccess,
+                onReviewDownloadsPermission = downloadsAccessViewModel::reviewPermission,
+                onSetDownloadsEnabled = downloadsAccessViewModel::setEnabled,
+                onRemoveDownloads = downloadsAccessViewModel::remove,
+                onRefreshDownloads = downloadsAccessViewModel::refresh,
             )
         }
     }
@@ -141,6 +183,7 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         authViewModel.onAppForegrounded()
         folderAccessViewModel.refreshFolderHealth()
+        downloadsAccessViewModel.refresh()
     }
 
     override fun onStop() {
