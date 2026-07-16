@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-implementation-roadmap
 status: active
-last_updated: 2026-07-15
+last_updated: 2026-07-16
 context_role: roadmap
 read_when:
   - The agent needs sequencing, milestones, or implementation gates.
@@ -125,9 +125,11 @@ Exit gate:
 
 ## Phase 3: Local Folder Selection
 
-Status: the implemented folder-selection slices are integrated into `main`
-through PR #4. Health classification and iterative read-only scanning remain
-open. The adversarially reviewed execution contract is
+Status: the initial folder-selection slices are integrated into `main` through
+PR #4. The completion branch and draft PR #5 now contain typed health,
+enablement, iterative read-only scanning, protected controls, durable sign-out
+recovery, and the completed safe Samsung live matrix. Whole-branch review is the
+only remaining Phase 3 merge gate. The execution contract is
 [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]].
 
 Load:

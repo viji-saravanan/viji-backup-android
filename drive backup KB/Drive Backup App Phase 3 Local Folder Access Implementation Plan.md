@@ -36,7 +36,7 @@ Drive implementation.
 
 ## Implementation Checkpoint
 
-As of 2026-07-15, Room schema 1, durable picker correlation, read-only grant
+As of 2026-07-16, Room schema 1, durable picker correlation, read-only grant
 acquisition/reconciliation, add, repair, display-name resolution/backfill,
 confirmed removal, typed root health, and durable enablement orchestration are
 implemented on the Phase 3 completion branch. Process-scope approval survives
@@ -47,8 +47,9 @@ Iterative scanning, scan cancellation, enable/disable controls, per-mapping scan
 orchestration, and protected folder controls are implemented. The canonical
 two-flavor matrix and core Samsung add/read-only-grant/scan/cancel/retry/source-
 sentinel cases pass. Grant-loss repair, controlled live removal,
-co-administrator switching, and whole-branch review remain merge gates, so
-release closure must not be inferred from implementation completion.
+co-administrator switching, tree move/repair, recent-apps redaction, and the
+redacted log audit now pass on the Samsung baseline. Whole-branch review remains
+the only pre-merge Phase 3 gate.
 
 ## Confirmed Product Inputs
 
