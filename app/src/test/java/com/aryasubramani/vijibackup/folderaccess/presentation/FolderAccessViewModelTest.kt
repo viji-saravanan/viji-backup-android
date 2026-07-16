@@ -10,6 +10,7 @@ import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerLaunch
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanEvent
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanIssue
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanProgress
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanSummary
 import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
@@ -21,11 +22,16 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
@@ -181,6 +187,159 @@ class FolderAccessViewModelTest {
     }
 
     @Test
+    fun partialScanEventMapsExactSummaryToPartialUiState() = runTest {
+        val summary = FolderScanSummary(
+            progress = FolderScanProgress(
+                foldersVisited = 3,
+                filesDiscovered = 7,
+                knownBytes = 19,
+                unreadableEntries = 1,
+            ),
+            elapsedTimeMillis = 41,
+            issues = setOf(FolderScanIssue.ProviderLoading),
+        )
+        val mapping = FolderMapping("mapping-a", "A", enabled = true)
+        val repository = FakeFolderMappingRepository().apply {
+            mappings.value = listOf(mapping)
+            beginScanResults[mapping.id] = BeginFolderScanResult.Ready(
+                flowOf(FolderScanEvent.Partial(summary)),
+            )
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scanFolder(mapping.id)
+        advanceUntilIdle()
+
+        assertEquals(
+            FolderScanUiState.Partial(summary),
+            viewModel.uiState.value.scanStateByMappingId[mapping.id],
+        )
+        assertNull(viewModel.uiState.value.notice)
+    }
+
+    @Test
+    fun failedScanEventMapsExactSummaryToFailedUiState() = runTest {
+        val summary = FolderScanSummary(
+            progress = FolderScanProgress(
+                foldersVisited = 1,
+                filesDiscovered = 2,
+                filesWithUnknownSize = 1,
+            ),
+            elapsedTimeMillis = 17,
+            issues = setOf(FolderScanIssue.InvalidTree),
+        )
+        val mapping = FolderMapping("mapping-a", "A", enabled = true)
+        val repository = FakeFolderMappingRepository().apply {
+            mappings.value = listOf(mapping)
+            beginScanResults[mapping.id] = BeginFolderScanResult.Ready(
+                flowOf(FolderScanEvent.Failed(summary)),
+            )
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scanFolder(mapping.id)
+        advanceUntilIdle()
+
+        assertEquals(
+            FolderScanUiState.Failed(summary),
+            viewModel.uiState.value.scanStateByMappingId[mapping.id],
+        )
+        assertNull(viewModel.uiState.value.notice)
+    }
+
+    @Test
+    fun scanFlowEndingWithoutTerminalMapsToStorageFailure() = runTest {
+        val mapping = FolderMapping("mapping-a", "A", enabled = true)
+        val repository = FakeFolderMappingRepository().apply {
+            mappings.value = listOf(mapping)
+            beginScanResults[mapping.id] = BeginFolderScanResult.Ready(flowOf())
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scanFolder(mapping.id)
+        advanceUntilIdle()
+
+        assertEquals(
+            FolderScanUiState.Failed(),
+            viewModel.uiState.value.scanStateByMappingId[mapping.id],
+        )
+        assertEquals(FolderAccessNotice.StorageFailure, viewModel.uiState.value.notice)
+    }
+
+    @Test
+    fun scanFlowExceptionMapsOnlyTargetToFailed() = runTest {
+        val target = FolderMapping("target", "Target", enabled = true)
+        val untouched = FolderMapping("untouched", "Untouched", enabled = true)
+        val throwingEvents: Flow<FolderScanEvent> = flow {
+            throw IllegalStateException("sensitive provider detail")
+        }
+        val repository = FakeFolderMappingRepository().apply {
+            mappings.value = listOf(target, untouched)
+            beginScanResults[target.id] = BeginFolderScanResult.Ready(throwingEvents)
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scanFolder(target.id)
+        advanceUntilIdle()
+
+        assertEquals(
+            FolderScanUiState.Failed(),
+            viewModel.uiState.value.scanStateByMappingId[target.id],
+        )
+        assertEquals(
+            FolderScanUiState.NotStarted,
+            viewModel.uiState.value.scanStateByMappingId[untouched.id],
+        )
+        assertEquals(FolderAccessHealth.Ready, viewModel.uiState.value.healthByMappingId[untouched.id])
+        assertEquals(FolderAccessNotice.StorageFailure, viewModel.uiState.value.notice)
+    }
+
+    @Test
+    fun eventAfterFirstTerminalCannotReplaceTerminalState() = runTest {
+        val completeSummary = FolderScanSummary(
+            progress = FolderScanProgress(filesDiscovered = 4),
+            elapsedTimeMillis = 9,
+            issues = emptySet(),
+        )
+        val failedSummary = FolderScanSummary(
+            progress = FolderScanProgress(filesDiscovered = 99),
+            elapsedTimeMillis = 10,
+            issues = setOf(FolderScanIssue.QueryFailure),
+        )
+        val mapping = FolderMapping("mapping-a", "A", enabled = true)
+        val repository = FakeFolderMappingRepository().apply {
+            mappings.value = listOf(mapping)
+            beginScanResults[mapping.id] = BeginFolderScanResult.Ready(
+                flowOf(
+                    FolderScanEvent.Complete(completeSummary),
+                    FolderScanEvent.Progress(FolderScanProgress(filesDiscovered = 50)),
+                    FolderScanEvent.Failed(failedSummary),
+                ),
+            )
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scanFolder(mapping.id)
+        advanceUntilIdle()
+
+        assertEquals(
+            FolderScanUiState.Complete(completeSummary),
+            viewModel.uiState.value.scanStateByMappingId[mapping.id],
+        )
+        assertNull(viewModel.uiState.value.notice)
+    }
+
+    @Test
     fun scanAdmissionOutcomesUpdateOnlyTheTargetMapping() = runTest {
         val mappings = listOf(
             FolderMapping("degraded", "Degraded", enabled = true),
@@ -255,6 +414,10 @@ class FolderAccessViewModelTest {
 
     @Test
     fun repairAndRemoveCancelOnlyTheirTargetScans() = runTest {
+        val repairStarted = CompletableDeferred<Unit>()
+        val releaseRepairEvent = CompletableDeferred<Unit>()
+        val removeStarted = CompletableDeferred<Unit>()
+        val releaseRemoveEvent = CompletableDeferred<Unit>()
         val mappings = listOf(
             FolderMapping("repair", "Repair", enabled = true),
             FolderMapping("remove", "Remove", enabled = true),
@@ -262,9 +425,21 @@ class FolderAccessViewModelTest {
         )
         val repository = FakeFolderMappingRepository().apply {
             this.mappings.value = mappings
-            mappings.forEach { mapping ->
-                beginScanResults[mapping.id] = BeginFolderScanResult.Ready(MutableSharedFlow())
-            }
+            beginScanResults["repair"] = BeginFolderScanResult.Ready(
+                nonCooperativeFlow(
+                    started = repairStarted,
+                    release = releaseRepairEvent,
+                    lateEvent = completeEvent(filesDiscovered = 10),
+                ),
+            )
+            beginScanResults["remove"] = BeginFolderScanResult.Ready(
+                nonCooperativeFlow(
+                    started = removeStarted,
+                    release = releaseRemoveEvent,
+                    lateEvent = completeEvent(filesDiscovered = 20),
+                ),
+            )
+            beginScanResults["untouched"] = BeginFolderScanResult.Ready(MutableSharedFlow())
             beginRepairResult = BeginFolderPickerResult.Busy
             removeResult = RemoveFolderResult.StorageFailure
         }
@@ -273,20 +448,39 @@ class FolderAccessViewModelTest {
         advanceUntilIdle()
         mappings.forEach { viewModel.scanFolder(it.id) }
         runCurrent()
+        assertTrue(repairStarted.isCompleted)
+        assertTrue(removeStarted.isCompleted)
 
         viewModel.repairFolder("repair")
         runCurrent()
         viewModel.removeFolder("remove")
+        runCurrent()
+
+        releaseRepairEvent.complete(Unit)
+        releaseRemoveEvent.complete(Unit)
         advanceUntilIdle()
 
-        assertTrue(viewModel.uiState.value.scanStateByMappingId["repair"] is FolderScanUiState.Cancelled)
-        assertTrue(viewModel.uiState.value.scanStateByMappingId["remove"] is FolderScanUiState.Cancelled)
+        assertEquals(
+            FolderScanUiState.Cancelled(FolderScanProgress()),
+            viewModel.uiState.value.scanStateByMappingId["repair"],
+        )
+        assertEquals(
+            FolderScanUiState.Cancelled(FolderScanProgress()),
+            viewModel.uiState.value.scanStateByMappingId["remove"],
+        )
         assertTrue(viewModel.uiState.value.scanStateByMappingId["untouched"] is FolderScanUiState.Running)
     }
 
     @Test
-    fun concurrentScansAndCancellationStayIsolatedByMapping() = runTest {
-        val firstEvents = MutableSharedFlow<FolderScanEvent>(extraBufferCapacity = 2)
+    fun cancelRacingCompletePublishesExactlyOneTerminalStateAndKeepsOtherScanRunning() = runTest {
+        val firstStarted = CompletableDeferred<Unit>()
+        val releaseFirstComplete = CompletableDeferred<Unit>()
+        val firstEvents = nonCooperativeFlow(
+            started = firstStarted,
+            release = releaseFirstComplete,
+            initialEvent = FolderScanEvent.Progress(FolderScanProgress(filesDiscovered = 1)),
+            lateEvent = completeEvent(filesDiscovered = 12),
+        )
         val secondEvents = MutableSharedFlow<FolderScanEvent>(extraBufferCapacity = 2)
         val mappings = listOf(
             FolderMapping("mapping-a", "A", enabled = true),
@@ -304,11 +498,22 @@ class FolderAccessViewModelTest {
         viewModel.scanFolder("mapping-a")
         viewModel.scanFolder("mapping-b")
         runCurrent()
-        firstEvents.emit(FolderScanEvent.Progress(FolderScanProgress(filesDiscovered = 1)))
+        assertTrue(firstStarted.isCompleted)
         secondEvents.emit(FolderScanEvent.Progress(FolderScanProgress(filesDiscovered = 8)))
+        runCurrent()
+        val firstTerminalStates = mutableListOf<FolderScanUiState>()
+        backgroundScope.launch {
+            viewModel.uiState
+                .map { it.scanStateByMappingId["mapping-a"] }
+                .distinctUntilChanged()
+                .filter { it.isTerminal() }
+                .collect { state -> firstTerminalStates += requireNotNull(state) }
+        }
         runCurrent()
 
         viewModel.cancelScan("mapping-a")
+        runCurrent()
+        releaseFirstComplete.complete(Unit)
         runCurrent()
 
         assertEquals(
@@ -327,18 +532,156 @@ class FolderAccessViewModelTest {
         )
         secondEvents.emit(FolderScanEvent.Complete(secondSummary))
         advanceUntilIdle()
+        assertEquals(
+            listOf(FolderScanUiState.Cancelled(FolderScanProgress(filesDiscovered = 1))),
+            firstTerminalStates,
+        )
         assertTrue(
             viewModel.uiState.value.scanStateByMappingId["mapping-b"] is FolderScanUiState.Complete,
         )
     }
 
     @Test
+    fun failedScanDoesNotCancelOrOverwriteConcurrentHealthyScan() = runTest {
+        val releaseFailure = CompletableDeferred<FolderScanSummary>()
+        val releaseHealthyComplete = CompletableDeferred<FolderScanSummary>()
+        val failedProgress = FolderScanProgress(filesDiscovered = 2)
+        val healthyProgress = FolderScanProgress(filesDiscovered = 8, knownBytes = 21)
+        val failedEvents = flow {
+            emit(FolderScanEvent.Progress(failedProgress))
+            emit(FolderScanEvent.Failed(releaseFailure.await()))
+        }
+        val healthyEvents = flow {
+            emit(FolderScanEvent.Progress(healthyProgress))
+            emit(FolderScanEvent.Complete(releaseHealthyComplete.await()))
+        }
+        val mappings = listOf(
+            FolderMapping("failed", "Failed", enabled = true),
+            FolderMapping("healthy", "Healthy", enabled = true),
+        )
+        val repository = FakeFolderMappingRepository().apply {
+            this.mappings.value = mappings
+            beginScanResults["failed"] = BeginFolderScanResult.Ready(failedEvents)
+            beginScanResults["healthy"] = BeginFolderScanResult.Ready(healthyEvents)
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scanFolder("failed")
+        viewModel.scanFolder("healthy")
+        runCurrent()
+
+        val failedSummary = FolderScanSummary(
+            progress = failedProgress,
+            elapsedTimeMillis = 6,
+            issues = setOf(FolderScanIssue.ProviderError),
+        )
+        releaseFailure.complete(failedSummary)
+        runCurrent()
+
+        assertEquals(
+            FolderScanUiState.Failed(failedSummary),
+            viewModel.uiState.value.scanStateByMappingId["failed"],
+        )
+        assertEquals(
+            FolderScanUiState.Running(healthyProgress),
+            viewModel.uiState.value.scanStateByMappingId["healthy"],
+        )
+        assertNull(viewModel.uiState.value.notice)
+
+        val healthySummary = FolderScanSummary(
+            progress = healthyProgress,
+            elapsedTimeMillis = 11,
+            issues = emptySet(),
+        )
+        releaseHealthyComplete.complete(healthySummary)
+        advanceUntilIdle()
+
+        assertEquals(
+            FolderScanUiState.Complete(healthySummary),
+            viewModel.uiState.value.scanStateByMappingId["healthy"],
+        )
+        assertEquals(
+            FolderScanUiState.Failed(failedSummary),
+            viewModel.uiState.value.scanStateByMappingId["failed"],
+        )
+    }
+
+    @Test
+    fun throwingScanFlowDoesNotCancelConcurrentHealthyScan() = runTest {
+        val releaseThrow = CompletableDeferred<Unit>()
+        val releaseHealthyComplete = CompletableDeferred<FolderScanSummary>()
+        val healthyProgress = FolderScanProgress(foldersVisited = 2, filesDiscovered = 5)
+        val throwingEvents: Flow<FolderScanEvent> = flow {
+            releaseThrow.await()
+            throw IllegalStateException("sensitive provider detail")
+        }
+        val healthyEvents = flow {
+            emit(FolderScanEvent.Progress(healthyProgress))
+            emit(FolderScanEvent.Complete(releaseHealthyComplete.await()))
+        }
+        val mappings = listOf(
+            FolderMapping("throwing", "Throwing", enabled = true),
+            FolderMapping("healthy", "Healthy", enabled = true),
+        )
+        val repository = FakeFolderMappingRepository().apply {
+            this.mappings.value = mappings
+            beginScanResults["throwing"] = BeginFolderScanResult.Ready(throwingEvents)
+            beginScanResults["healthy"] = BeginFolderScanResult.Ready(healthyEvents)
+        }
+        val viewModel = FolderAccessViewModel(repository)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scanFolder("throwing")
+        viewModel.scanFolder("healthy")
+        runCurrent()
+        releaseThrow.complete(Unit)
+        runCurrent()
+
+        assertEquals(
+            FolderScanUiState.Failed(),
+            viewModel.uiState.value.scanStateByMappingId["throwing"],
+        )
+        assertEquals(
+            FolderScanUiState.Running(healthyProgress),
+            viewModel.uiState.value.scanStateByMappingId["healthy"],
+        )
+        assertEquals(FolderAccessNotice.StorageFailure, viewModel.uiState.value.notice)
+
+        val healthySummary = FolderScanSummary(
+            progress = healthyProgress,
+            elapsedTimeMillis = 13,
+            issues = emptySet(),
+        )
+        releaseHealthyComplete.complete(healthySummary)
+        advanceUntilIdle()
+
+        assertEquals(
+            FolderScanUiState.Complete(healthySummary),
+            viewModel.uiState.value.scanStateByMappingId["healthy"],
+        )
+        assertEquals(
+            FolderScanUiState.Failed(),
+            viewModel.uiState.value.scanStateByMappingId["throwing"],
+        )
+    }
+
+    @Test
     fun disableAndDeactivationCancelRunningScansWithoutLateState() = runTest {
-        val events = MutableSharedFlow<FolderScanEvent>()
+        val disableStarted = CompletableDeferred<Unit>()
+        val releaseDisabledEvent = CompletableDeferred<Unit>()
+        val disabledEvents = nonCooperativeFlow(
+            started = disableStarted,
+            release = releaseDisabledEvent,
+            initialEvent = FolderScanEvent.Progress(FolderScanProgress(filesDiscovered = 3)),
+            lateEvent = completeEvent(filesDiscovered = 30),
+        )
         val mapping = FolderMapping("mapping-a", "A", enabled = true)
         val repository = FakeFolderMappingRepository().apply {
             mappings.value = listOf(mapping)
-            beginScanResults[mapping.id] = BeginFolderScanResult.Ready(events)
+            beginScanResults[mapping.id] = BeginFolderScanResult.Ready(disabledEvents)
             setEnabledResult = SetFolderEnabledResult.Updated
         }
         val viewModel = FolderAccessViewModel(repository)
@@ -347,15 +690,30 @@ class FolderAccessViewModelTest {
 
         viewModel.scanFolder(mapping.id)
         runCurrent()
+        assertTrue(disableStarted.isCompleted)
         viewModel.setFolderEnabled(mapping.id, false)
+        runCurrent()
+        releaseDisabledEvent.complete(Unit)
         advanceUntilIdle()
-        assertTrue(
-            viewModel.uiState.value.scanStateByMappingId[mapping.id] is FolderScanUiState.Cancelled,
+        assertEquals(
+            FolderScanUiState.Cancelled(FolderScanProgress(filesDiscovered = 3)),
+            viewModel.uiState.value.scanStateByMappingId[mapping.id],
         )
 
+        val deactivationStarted = CompletableDeferred<Unit>()
+        val releaseDeactivatedEvent = CompletableDeferred<Unit>()
+        repository.beginScanResults[mapping.id] = BeginFolderScanResult.Ready(
+            nonCooperativeFlow(
+                started = deactivationStarted,
+                release = releaseDeactivatedEvent,
+                lateEvent = completeEvent(filesDiscovered = 40),
+            ),
+        )
         viewModel.scanFolder(mapping.id)
         runCurrent()
+        assertTrue(deactivationStarted.isCompleted)
         viewModel.deactivate()
+        releaseDeactivatedEvent.complete(Unit)
         advanceUntilIdle()
 
         assertTrue(viewModel.uiState.value.mappings.isEmpty())
@@ -818,6 +1176,37 @@ class FolderAccessViewModelTest {
         assertTrue(repository.removeCalls.isEmpty())
     }
 }
+
+private fun nonCooperativeFlow(
+    started: CompletableDeferred<Unit>,
+    release: CompletableDeferred<Unit>,
+    lateEvent: FolderScanEvent,
+    initialEvent: FolderScanEvent? = null,
+): Flow<FolderScanEvent> = object : Flow<FolderScanEvent> {
+    override suspend fun collect(collector: FlowCollector<FolderScanEvent>) {
+        initialEvent?.let { collector.emit(it) }
+        started.complete(Unit)
+        withContext(NonCancellable) {
+            release.await()
+            collector.emit(lateEvent)
+        }
+    }
+}
+
+private fun completeEvent(filesDiscovered: Long): FolderScanEvent.Complete =
+    FolderScanEvent.Complete(
+        FolderScanSummary(
+            progress = FolderScanProgress(filesDiscovered = filesDiscovered),
+            elapsedTimeMillis = 1,
+            issues = emptySet(),
+        ),
+    )
+
+private fun FolderScanUiState?.isTerminal(): Boolean =
+    this is FolderScanUiState.Complete ||
+        this is FolderScanUiState.Partial ||
+        this is FolderScanUiState.Failed ||
+        this is FolderScanUiState.Cancelled
 
 private class FakeFolderMappingRepository : FolderMappingRepository {
     val mappings = MutableStateFlow<List<FolderMapping>>(emptyList())
