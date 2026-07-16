@@ -58,6 +58,8 @@ fun VijiBackupApp(
     onSetDownloadsEnabled: (Boolean) -> Unit = {},
     onRemoveDownloads: () -> Unit = {},
     onRefreshDownloads: () -> Unit = {},
+    onScanDownloads: () -> Unit = {},
+    onCancelDownloadsScan: () -> Unit = {},
 ) {
     VijiBackupTheme {
         Surface(
@@ -106,6 +108,8 @@ fun VijiBackupApp(
                             onSetDownloadsEnabled = onSetDownloadsEnabled,
                             onRemoveDownloads = onRemoveDownloads,
                             onRefreshDownloads = onRefreshDownloads,
+                            onScanDownloads = onScanDownloads,
+                            onCancelDownloadsScan = onCancelDownloadsScan,
                         )
                     } else {
                         AuthGateContent(
@@ -138,6 +142,8 @@ private fun ApprovedContent(
     onSetDownloadsEnabled: (Boolean) -> Unit,
     onRemoveDownloads: () -> Unit,
     onRefreshDownloads: () -> Unit,
+    onScanDownloads: () -> Unit,
+    onCancelDownloadsScan: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -175,6 +181,8 @@ private fun ApprovedContent(
             onRemove = onRemoveDownloads,
             onUseSafPicker = onAddFolder,
             onRefresh = onRefreshDownloads,
+            onScan = onScanDownloads,
+            onCancelScan = onCancelDownloadsScan,
         )
         Spacer(Modifier.height(32.dp))
         FolderAccessContent(

@@ -15,7 +15,9 @@ import com.aryasubramani.vijibackup.auth.google.GoogleSignInClient
 import com.aryasubramani.vijibackup.downloadsaccess.data.DataStoreDownloadsSourceStore
 import com.aryasubramani.vijibackup.downloadsaccess.data.downloadsSourceDataStore
 import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessManager
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanner
 import com.aryasubramani.vijibackup.downloadsaccess.platform.AndroidDownloadsAccessProbe
+import com.aryasubramani.vijibackup.downloadsaccess.platform.createAndroidDownloadsScanner
 import com.aryasubramani.vijibackup.folderaccess.data.RoomFolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.data.DataStoreSignOutCleanupIntentStore
 import com.aryasubramani.vijibackup.folderaccess.data.signOutCleanupIntentDataStore
@@ -32,6 +34,7 @@ interface AppContainer {
     val googleSignInClient: GoogleSignInClient
     val folderMappingRepository: FolderMappingRepository
     val downloadsAccessManager: DownloadsAccessManager
+    val downloadsScanner: DownloadsScanner
     val isGoogleSignInConfigured: Boolean
 }
 
@@ -39,6 +42,7 @@ internal class DefaultAppContainer(context: Context) : AppContainer {
     private val applicationContext = context.applicationContext
     private val credentialManager = CredentialManager.create(applicationContext)
     private val googleSignInConfiguration = GoogleSignInBuildConfiguration.value
+    private val downloadsAccessProbe = AndroidDownloadsAccessProbe()
     private val folderAccessDatabase by lazy {
         Room.databaseBuilder(
             applicationContext,
@@ -95,6 +99,8 @@ internal class DefaultAppContainer(context: Context) : AppContainer {
 
     override val downloadsAccessManager = DownloadsAccessManager(
         store = DataStoreDownloadsSourceStore(applicationContext.downloadsSourceDataStore),
-        accessProbe = AndroidDownloadsAccessProbe(),
+        accessProbe = downloadsAccessProbe,
     )
+
+    override val downloadsScanner = createAndroidDownloadsScanner(downloadsAccessProbe)
 }

@@ -11,6 +11,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.aryasubramani.vijibackup.downloadsaccess.data.DownloadsSourceConfiguration
 import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessHealth
 import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessSnapshot
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanProgress
 import com.aryasubramani.vijibackup.ui.theme.VijiBackupTheme
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -87,6 +88,47 @@ class DownloadsAccessScreenInstrumentedTest {
         assertTrue(pickerRequested)
     }
 
+    @Test
+    fun readyDownloadsOffersScan() {
+        var scanRequested = false
+        composeRule.setDownloadsContent(
+            state = state(DownloadsAccessHealth.Ready),
+            onScan = { scanRequested = true },
+        )
+
+        composeRule.onNodeWithTag(DownloadsAccessTestTags.ScanStatus).assertIsDisplayed()
+        composeRule.onNodeWithTag(DownloadsAccessTestTags.ScanAction)
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
+        assertTrue(scanRequested)
+    }
+
+    @Test
+    fun runningScanShowsAggregateProgressAndIsolatedCancellation() {
+        var cancellationRequested = false
+        composeRule.setDownloadsContent(
+            state = state(
+                health = DownloadsAccessHealth.Ready,
+                scanState = DownloadsScanUiState.Running(
+                    DownloadsScanProgress(
+                        foldersVisited = 2,
+                        filesDiscovered = 3,
+                        knownBytes = 5,
+                        unreadableEntries = 1,
+                    ),
+                ),
+            ),
+            onCancelScan = { cancellationRequested = true },
+        )
+        composeRule.onNodeWithTag(DownloadsAccessTestTags.CancelScan)
+            .assertIsDisplayed()
+            .assertIsEnabled()
+            .performClick()
+
+        assertTrue(cancellationRequested)
+    }
+
     private fun androidx.compose.ui.test.junit4.AndroidComposeTestRule<*, *>.setDownloadsContent(
         state: DownloadsAccessUiState,
         onRequestAccess: () -> Unit = {},
@@ -94,6 +136,8 @@ class DownloadsAccessScreenInstrumentedTest {
         onSetEnabled: (Boolean) -> Unit = {},
         onRemove: () -> Unit = {},
         onUseSafPicker: () -> Unit = {},
+        onScan: () -> Unit = {},
+        onCancelScan: () -> Unit = {},
     ) {
         setContent {
             VijiBackupTheme {
@@ -104,6 +148,8 @@ class DownloadsAccessScreenInstrumentedTest {
                     onSetEnabled = onSetEnabled,
                     onRemove = onRemove,
                     onUseSafPicker = onUseSafPicker,
+                    onScan = onScan,
+                    onCancelScan = onCancelScan,
                 )
             }
         }
@@ -114,6 +160,7 @@ class DownloadsAccessScreenInstrumentedTest {
 private fun state(
     health: DownloadsAccessHealth,
     configured: Boolean = true,
+    scanState: DownloadsScanUiState = DownloadsScanUiState.Idle,
 ) = DownloadsAccessUiState(
     snapshot = DownloadsAccessSnapshot(
         configuration = DownloadsSourceConfiguration(
@@ -123,4 +170,5 @@ private fun state(
         health = health,
     ),
     isLoading = false,
+    scanState = scanState,
 )

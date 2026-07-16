@@ -8,10 +8,20 @@ import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessManage
 import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessPlatform
 import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessProbe
 import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessSnapshot
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanEvent
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanIssue
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanProgress
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanSummary
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanner
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -35,6 +45,7 @@ class DownloadsAccessViewModelTest {
                 store = FakeDownloadsSourceStore(configuration),
                 accessProbe = FakeDownloadsAccessProbe(),
             ),
+            scanner = FakeDownloadsScanner(),
         )
 
         viewModel.activate()
@@ -201,12 +212,164 @@ class DownloadsAccessViewModelTest {
         assertEquals(DownloadsAccessUiState(), viewModel.uiState.value)
         assertEquals(0, store.writeCount)
     }
+
+    @Test
+    fun readySourceRevalidatesThenStreamsAggregateScanProgressAndCompletion() = runTest {
+        val progress = DownloadsScanProgress(
+            foldersVisited = 3,
+            filesDiscovered = 5,
+            knownBytes = 21,
+        )
+        val scanner = FakeDownloadsScanner(
+            flowOf(
+                DownloadsScanEvent.Progress(progress),
+                DownloadsScanEvent.Complete(scanSummary(progress)),
+            ),
+        )
+        val viewModel = createViewModel(store = readyStore(), scanner = scanner)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scan()
+        advanceUntilIdle()
+
+        assertEquals(1, scanner.scanCalls)
+        assertEquals(
+            DownloadsScanUiState.Complete(scanSummary(progress)),
+            viewModel.uiState.value.scanState,
+        )
+    }
+
+    @Test
+    fun permissionRevokedImmediatelyBeforeScanFailsAdmissionWithoutCallingScanner() = runTest {
+        val probe = FakeDownloadsAccessProbe()
+        val scanner = FakeDownloadsScanner()
+        val viewModel = createViewModel(store = readyStore(), probe = probe, scanner = scanner)
+        viewModel.activate()
+        advanceUntilIdle()
+        probe.accessGranted = false
+
+        viewModel.scan()
+        advanceUntilIdle()
+
+        assertEquals(0, scanner.scanCalls)
+        assertEquals(DownloadsAccessHealth.NeedsPermission, viewModel.uiState.value.snapshot?.health)
+        assertEquals(DownloadsScanUiState.Idle, viewModel.uiState.value.scanState)
+    }
+
+    @Test
+    fun partialAndFailedTerminalsRemainTypedAndDoNotExposeEntryNames() = runTest {
+        val progress = DownloadsScanProgress(filesDiscovered = 2, unreadableEntries = 1)
+        val partial = scanSummary(
+            progress,
+            issues = setOf(DownloadsScanIssue.EntryUnreadable),
+        )
+        val scanner = FakeDownloadsScanner(flowOf(DownloadsScanEvent.Partial(partial)))
+        val viewModel = createViewModel(store = readyStore(), scanner = scanner)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scan()
+        advanceUntilIdle()
+
+        assertEquals(DownloadsScanUiState.Partial(partial), viewModel.uiState.value.scanState)
+        assertFalse(viewModel.uiState.value.toString().contains("entry-name"))
+    }
+
+    @Test
+    fun eventAfterFirstTerminalCannotReplaceTheCompletedScan() = runTest {
+        val completed = scanSummary(DownloadsScanProgress(filesDiscovered = 2))
+        val laterFailure = scanSummary(
+            DownloadsScanProgress(filesDiscovered = 99),
+            issues = setOf(DownloadsScanIssue.DirectoryUnreadable),
+        )
+        val scanner = FakeDownloadsScanner(
+            flowOf(
+                DownloadsScanEvent.Complete(completed),
+                DownloadsScanEvent.Failed(laterFailure),
+            ),
+        )
+        val viewModel = createViewModel(store = readyStore(), scanner = scanner)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scan()
+        advanceUntilIdle()
+
+        assertEquals(DownloadsScanUiState.Complete(completed), viewModel.uiState.value.scanState)
+    }
+
+    @Test
+    fun explicitCancellationStopsOnlyTheScanAndRetainsItsLastAggregateProgress() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val progress = DownloadsScanProgress(foldersVisited = 1, filesDiscovered = 1)
+        val scanner = FakeDownloadsScanner(
+            flow {
+                emit(DownloadsScanEvent.Progress(progress))
+                started.complete(Unit)
+                awaitCancellation()
+            },
+        )
+        val viewModel = createViewModel(store = readyStore(), scanner = scanner)
+        viewModel.activate()
+        advanceUntilIdle()
+
+        viewModel.scan()
+        runCurrent()
+        started.await()
+        assertEquals(DownloadsScanUiState.Running(progress), viewModel.uiState.value.scanState)
+
+        viewModel.cancelScan()
+        assertEquals(DownloadsScanUiState.Cancelling(progress), viewModel.uiState.value.scanState)
+        advanceUntilIdle()
+
+        assertEquals(DownloadsScanUiState.Cancelled(progress), viewModel.uiState.value.scanState)
+        assertEquals(DownloadsAccessHealth.Ready, viewModel.uiState.value.snapshot?.health)
+    }
+
+    @Test
+    fun disableInvalidatesLateScanEventsBeforeChangingSourceState() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val progress = DownloadsScanProgress(filesDiscovered = 1)
+        val scanner = FakeDownloadsScanner(
+            flow {
+                emit(DownloadsScanEvent.Progress(progress))
+                started.complete(Unit)
+                try {
+                    awaitCancellation()
+                } catch (_: kotlinx.coroutines.CancellationException) {
+                    emit(
+                        DownloadsScanEvent.Complete(
+                            scanSummary(DownloadsScanProgress(filesDiscovered = 99)),
+                        ),
+                    )
+                }
+            },
+        )
+        val viewModel = createViewModel(store = readyStore(), scanner = scanner)
+        viewModel.activate()
+        advanceUntilIdle()
+        viewModel.scan()
+        runCurrent()
+        started.await()
+
+        viewModel.setEnabled(false)
+        advanceUntilIdle()
+
+        assertEquals(DownloadsAccessHealth.Disabled, viewModel.uiState.value.snapshot?.health)
+        assertEquals(DownloadsScanUiState.Cancelled(progress), viewModel.uiState.value.scanState)
+    }
 }
 
 private fun createViewModel(
     store: FakeDownloadsSourceStore = FakeDownloadsSourceStore(),
     probe: FakeDownloadsAccessProbe = FakeDownloadsAccessProbe(),
-) = DownloadsAccessViewModel(DownloadsAccessManager(store, probe))
+    scanner: FakeDownloadsScanner = FakeDownloadsScanner(),
+) = DownloadsAccessViewModel(DownloadsAccessManager(store, probe), scanner)
+
+private fun readyStore() = FakeDownloadsSourceStore(
+    DownloadsSourceConfiguration(configured = true, enabled = true),
+)
 
 private class FakeDownloadsSourceStore(
     var configuration: DownloadsSourceConfiguration = DownloadsSourceConfiguration(),
@@ -233,3 +396,25 @@ private class FakeDownloadsAccessProbe(
 
     override fun isDownloadsRootReadable(): Boolean = rootReadable
 }
+
+private class FakeDownloadsScanner(
+    var events: Flow<DownloadsScanEvent> = flowOf(
+        DownloadsScanEvent.Complete(scanSummary(DownloadsScanProgress())),
+    ),
+) : DownloadsScanner {
+    var scanCalls = 0
+
+    override fun scan(): Flow<DownloadsScanEvent> {
+        scanCalls += 1
+        return events
+    }
+}
+
+private fun scanSummary(
+    progress: DownloadsScanProgress,
+    issues: Set<DownloadsScanIssue> = emptySet(),
+) = DownloadsScanSummary(
+    progress = progress,
+    elapsedTimeMillis = 25,
+    issues = issues,
+)

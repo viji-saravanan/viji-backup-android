@@ -59,7 +59,10 @@ class MainActivity : ComponentActivity() {
         FolderAccessViewModel.Factory(appContainer.folderMappingRepository)
     }
     private val downloadsAccessViewModel by viewModels<DownloadsAccessViewModel> {
-        DownloadsAccessViewModel.Factory(appContainer.downloadsAccessManager)
+        DownloadsAccessViewModel.Factory(
+            manager = appContainer.downloadsAccessManager,
+            scanner = appContainer.downloadsScanner,
+        )
     }
     private val downloadsSettingsIntentFactory by lazy(LazyThreadSafetyMode.NONE) {
         AndroidDownloadsAccessSettingsIntentFactory(this)
@@ -164,6 +167,8 @@ class MainActivity : ComponentActivity() {
                 onSetDownloadsEnabled = downloadsAccessViewModel::setEnabled,
                 onRemoveDownloads = downloadsAccessViewModel::remove,
                 onRefreshDownloads = downloadsAccessViewModel::refresh,
+                onScanDownloads = downloadsAccessViewModel::scan,
+                onCancelDownloadsScan = downloadsAccessViewModel::cancelScan,
             )
         }
     }

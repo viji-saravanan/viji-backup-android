@@ -33,6 +33,7 @@ import com.aryasubramani.vijibackup.downloadsaccess.data.DownloadsSourceStore
 import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessManager
 import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessPlatform
 import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessProbe
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanner
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderScanResult
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMapping
@@ -47,6 +48,7 @@ import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessTestTa
 import com.aryasubramani.vijibackup.folderaccess.saf.FolderPickerResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -81,6 +83,10 @@ class AppCompositionInstrumentedTest {
         assertSame(
             application.appContainer.downloadsAccessManager,
             application.appContainer.downloadsAccessManager,
+        )
+        assertSame(
+            application.appContainer.downloadsScanner,
+            application.appContainer.downloadsScanner,
         )
     }
 
@@ -141,6 +147,7 @@ class AppCompositionInstrumentedTest {
             }
             override val folderMappingRepository = folderRepository
             override val downloadsAccessManager = testDownloadsAccessManager()
+            override val downloadsScanner = testDownloadsScanner()
             override val isGoogleSignInConfigured = true
         }
         application.testAppContainer = fakeContainer
@@ -199,6 +206,7 @@ class AppCompositionInstrumentedTest {
             }
             override val folderMappingRepository = folderRepository
             override val downloadsAccessManager = testDownloadsAccessManager()
+            override val downloadsScanner = testDownloadsScanner()
             override val isGoogleSignInConfigured = true
         }
         application.testAppContainer = fakeContainer
@@ -243,6 +251,7 @@ class AppCompositionInstrumentedTest {
             }
             override val folderMappingRepository = folderRepository
             override val downloadsAccessManager = testDownloadsAccessManager()
+            override val downloadsScanner = testDownloadsScanner()
             override val isGoogleSignInConfigured = false
         }
         application.testAppContainer = fakeContainer
@@ -339,6 +348,7 @@ class AppCompositionInstrumentedTest {
             }
             override val folderMappingRepository = folderRepository
             override val downloadsAccessManager = testDownloadsAccessManager()
+            override val downloadsScanner = testDownloadsScanner()
             override val isGoogleSignInConfigured = true
         }
         application.testAppContainer = fakeContainer
@@ -516,6 +526,8 @@ private fun testDownloadsAccessManager() = DownloadsAccessManager(
         override fun isDownloadsRootReadable() = true
     },
 )
+
+private fun testDownloadsScanner() = DownloadsScanner { emptyFlow() }
 
 private fun approvedAccount() = requireNotNull(
     GoogleAccount.create(

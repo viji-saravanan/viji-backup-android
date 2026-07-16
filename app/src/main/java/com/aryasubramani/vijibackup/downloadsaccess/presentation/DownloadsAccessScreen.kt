@@ -43,11 +43,18 @@ internal fun DownloadsAccessContent(
     onRemove: () -> Unit,
     onUseSafPicker: () -> Unit,
     onRefresh: () -> Unit = {},
+    onScan: () -> Unit = {},
+    onCancelScan: () -> Unit = {},
 ) {
     var showRemoveConfirmation by rememberSaveable { mutableStateOf(false) }
     val snapshot = uiState.snapshot
     val health = snapshot?.health
-    val actionsEnabled = !uiState.isLoading && !uiState.isBusy && !uiState.isAwaitingSettings
+    val baseActionsEnabled =
+        !uiState.isLoading && !uiState.isBusy && !uiState.isAwaitingSettings
+    val scanInProgress =
+        uiState.scanState is DownloadsScanUiState.Running ||
+            uiState.scanState is DownloadsScanUiState.Cancelling
+    val actionsEnabled = baseActionsEnabled && !scanInProgress
 
     Column(
         modifier = Modifier
@@ -117,6 +124,58 @@ internal fun DownloadsAccessContent(
                             .testTag(DownloadsAccessTestTags.EnabledSwitch)
                             .semantics { contentDescription = description },
                     )
+                }
+            }
+
+            if (snapshot.configuration.configured) {
+                Text(
+                    text = stringResource(uiState.scanState.messageResource()),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag(DownloadsAccessTestTags.ScanStatus)
+                        .semantics { liveRegion = LiveRegionMode.Polite },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                uiState.scanState.progressOrNull()?.let { progress ->
+                    Text(
+                        text = stringResource(
+                            R.string.downloads_access_scan_progress,
+                            progress.foldersVisited,
+                            progress.filesDiscovered,
+                            progress.knownBytes,
+                            progress.filesWithUnknownSize,
+                            progress.unreadableEntries,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                when (uiState.scanState) {
+                    is DownloadsScanUiState.Running,
+                    is DownloadsScanUiState.Cancelling,
+                    -> OutlinedButton(
+                        onClick = onCancelScan,
+                        enabled = baseActionsEnabled &&
+                            uiState.scanState is DownloadsScanUiState.Running,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .testTag(DownloadsAccessTestTags.CancelScan),
+                    ) {
+                        Text(stringResource(R.string.downloads_access_cancel_scan))
+                    }
+                    else -> if (health == DownloadsAccessHealth.Ready) {
+                        OutlinedButton(
+                            onClick = onScan,
+                            enabled = actionsEnabled,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 48.dp)
+                                .testTag(DownloadsAccessTestTags.ScanAction),
+                        ) {
+                            Text(stringResource(R.string.downloads_access_scan))
+                        }
+                    }
                 }
             }
 
@@ -236,6 +295,27 @@ private fun DownloadsAccessNotice.messageResource(): Int = when (this) {
     DownloadsAccessNotice.StorageFailure -> R.string.downloads_access_notice_storage_failure
 }
 
+@StringRes
+private fun DownloadsScanUiState.messageResource(): Int = when (this) {
+    DownloadsScanUiState.Idle -> R.string.downloads_access_scan_idle
+    is DownloadsScanUiState.Running -> R.string.downloads_access_scan_running
+    is DownloadsScanUiState.Cancelling -> R.string.downloads_access_scan_cancelling
+    is DownloadsScanUiState.Complete -> R.string.downloads_access_scan_complete
+    is DownloadsScanUiState.Partial -> R.string.downloads_access_scan_partial
+    is DownloadsScanUiState.Failed -> R.string.downloads_access_scan_failed
+    is DownloadsScanUiState.Cancelled -> R.string.downloads_access_scan_cancelled
+}
+
+private fun DownloadsScanUiState.progressOrNull() = when (this) {
+    DownloadsScanUiState.Idle -> null
+    is DownloadsScanUiState.Running -> progress
+    is DownloadsScanUiState.Cancelling -> progress
+    is DownloadsScanUiState.Complete -> summary.progress
+    is DownloadsScanUiState.Partial -> summary.progress
+    is DownloadsScanUiState.Failed -> summary?.progress
+    is DownloadsScanUiState.Cancelled -> progress
+}
+
 internal object DownloadsAccessTestTags {
     const val Screen = "downloads_access_screen"
     const val Status = "downloads_access_status"
@@ -247,4 +327,7 @@ internal object DownloadsAccessTestTags {
     const val Remove = "downloads_access_remove"
     const val RemoveDialog = "downloads_access_remove_dialog"
     const val ConfirmRemove = "downloads_access_remove_confirm"
+    const val ScanStatus = "downloads_access_scan_status"
+    const val ScanAction = "downloads_access_scan"
+    const val CancelScan = "downloads_access_cancel_scan"
 }
