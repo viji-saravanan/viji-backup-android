@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.viewModels
 import androidx.annotation.VisibleForTesting
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +34,8 @@ class MainActivity : ComponentActivity() {
         String,
         ActivityResultLauncher<ReadOnlyFolderPickerRequest>,
     >()
+    private val folderPickerActivityResultRegistry =
+        folderPickerActivityResultRegistryFactoryForTesting?.invoke() ?: activityResultRegistry
     private val mainHandler = Handler(Looper.getMainLooper())
 
     @VisibleForTesting
@@ -68,6 +71,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         folderPickerRequestState = FolderPickerRequestState.restore(savedInstanceState)
+        if (folderPickerActivityResultRegistry !== activityResultRegistry) {
+            folderPickerActivityResultRegistry.onRestoreInstanceState(
+                savedInstanceState?.getBundle(FOLDER_PICKER_REGISTRY_STATE_KEY),
+            )
+        }
         super.onCreate(savedInstanceState)
         folderPickerRequestState.outstandingLaunches.forEach(::registerFolderPicker)
         applyProtectedWindowPolicy()
@@ -119,6 +127,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         folderPickerRequestState.saveTo(outState)
+        if (folderPickerActivityResultRegistry !== activityResultRegistry) {
+            outState.putBundle(
+                FOLDER_PICKER_REGISTRY_STATE_KEY,
+                Bundle().also(folderPickerActivityResultRegistry::onSaveInstanceState),
+            )
+        }
         super.onSaveInstanceState(outState)
     }
 
@@ -165,7 +179,7 @@ class MainActivity : ComponentActivity() {
         registration: FolderPickerLaunchRegistration,
     ): ActivityResultLauncher<ReadOnlyFolderPickerRequest> {
         folderPickerLaunchers[registration.registryKey]?.let { return it }
-        val launcher = activityResultRegistry.register(
+        val launcher = folderPickerActivityResultRegistry.register(
             registration.registryKey,
             folderPickerContract,
         ) { result ->
@@ -208,6 +222,18 @@ class MainActivity : ComponentActivity() {
         folderPickerRequestState.stageForLaunch(requestToken) != null
 
     @VisibleForTesting
+    internal fun launchFolderPickerThroughRegistryForTesting(requestToken: String): String? {
+        if (folderPickerRequestState.currentRegistryKey != null) return null
+        launchFolderPicker(
+            FolderPickerLaunch(
+                requestToken = requestToken,
+                initialTreeUri = null,
+            ),
+        )
+        return folderPickerRequestState.currentRegistryKey
+    }
+
+    @VisibleForTesting
     internal fun deliverFolderPickerResultForTesting(
         registryKey: String,
         result: FolderPickerResult,
@@ -238,5 +264,14 @@ class MainActivity : ComponentActivity() {
             treeUri = treeUri.toString(),
             grantedFlags = grantedFlags,
         )
+    }
+
+    internal companion object {
+        @VisibleForTesting
+        internal var folderPickerActivityResultRegistryFactoryForTesting:
+            (() -> ActivityResultRegistry)? = null
+
+        private const val FOLDER_PICKER_REGISTRY_STATE_KEY =
+            "folder_picker_activity_result_registry_state"
     }
 }

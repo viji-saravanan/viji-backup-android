@@ -2,6 +2,8 @@ package com.aryasubramani.vijibackup.app
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
@@ -12,6 +14,7 @@ import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.Lifecycle
 import com.aryasubramani.vijibackup.R
 import com.aryasubramani.vijibackup.auth.data.AuthSessionManager
@@ -169,6 +172,108 @@ class AppCompositionInstrumentedTest {
     }
 
     @Test
+    fun mainActivityCompletesActiveFolderPickerResultThroughRegistryAfterRecreation() {
+        val application = ApplicationProvider.getApplicationContext<VijiBackupApplication>()
+        val folderRepository = EmptyFolderMappingRepository()
+        val registries = mutableListOf<ControllableActivityResultRegistry>()
+        val requestToken = "registry-recreation-token"
+        val treeUri = Uri.parse("content://provider.test/tree/recreated")
+        val grantedFlags =
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+        val selectedResult = FolderPickerResult.Selected(
+            treeUri = treeUri,
+            grantedFlags = grantedFlags,
+        )
+        val fakeContainer = object : AppContainer {
+            override val authSessionManager = AuthSessionManager(
+                accessPolicy = AccountAccessPolicy(emptySet()),
+                sessionStore = InMemoryAuthSessionStore(),
+                credentialStateClearer = CredentialStateClearer {},
+            )
+            override val googleSignInClient = GoogleSignInClient { _, _ ->
+                error("Sign-in is not expected")
+            }
+            override val folderMappingRepository = folderRepository
+            override val isGoogleSignInConfigured = false
+        }
+        application.testAppContainer = fakeContainer
+        MainActivity.folderPickerActivityResultRegistryFactoryForTesting = {
+            ControllableActivityResultRegistry().also(registries::add)
+        }
+
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                composeRule.waitForIdle()
+
+                var originalRegistryKey: String? = null
+                var originalRequestCode: Int? = null
+                scenario.onActivity { activity ->
+                    originalRegistryKey =
+                        activity.launchFolderPickerThroughRegistryForTesting(requestToken)
+                    originalRequestCode = registries.single().launchedRequestCodes.single()
+                    assertEquals(
+                        originalRegistryKey,
+                        activity.currentFolderPickerRegistryKeyForTesting,
+                    )
+                    assertEquals(
+                        requestToken,
+                        activity.currentFolderPickerRequestTokenForTesting,
+                    )
+                }
+
+                scenario.recreate()
+                composeRule.waitForIdle()
+
+                scenario.onActivity { activity ->
+                    assertEquals(2, registries.size)
+                    assertTrue(registries.last().launchedRequestCodes.isEmpty())
+                    assertEquals(
+                        originalRegistryKey,
+                        activity.currentFolderPickerRegistryKeyForTesting,
+                    )
+                    assertEquals(
+                        requestToken,
+                        activity.currentFolderPickerRequestTokenForTesting,
+                    )
+
+                    val recreatedRegistry = registries.last()
+                    assertTrue(
+                        recreatedRegistry.dispatchResult(
+                            checkNotNull(originalRequestCode),
+                            selectedResult,
+                        ),
+                    )
+                    assertTrue(
+                        recreatedRegistry.dispatchResult(
+                            checkNotNull(originalRequestCode),
+                            FolderPickerResult.Cancelled,
+                        ),
+                    )
+                }
+                composeRule.waitForIdle()
+
+                assertEquals(
+                    listOf(
+                        requestToken to FolderPickerSelection.Selected(
+                            treeUri = treeUri.toString(),
+                            grantedFlags = grantedFlags,
+                        ),
+                    ),
+                    folderRepository.completionCalls,
+                )
+                scenario.onActivity { activity ->
+                    assertNull(activity.currentFolderPickerRequestTokenForTesting)
+                    assertNull(activity.currentFolderPickerRegistryKeyForTesting)
+                }
+            }
+        } finally {
+            MainActivity.folderPickerActivityResultRegistryFactoryForTesting = null
+            application.testAppContainer = null
+        }
+    }
+
+    @Test
     fun mainActivityDiscardsPickerCallbackAfterExplicitSignOut() {
         val application = ApplicationProvider.getApplicationContext<VijiBackupApplication>()
         val account = approvedAccount()
@@ -312,6 +417,19 @@ private class EmptyFolderMappingRepository : FolderMappingRepository {
 
     override suspend fun remove(mappingId: String): RemoveFolderResult =
         RemoveFolderResult.StorageFailure
+}
+
+private class ControllableActivityResultRegistry : ActivityResultRegistry() {
+    val launchedRequestCodes = mutableListOf<Int>()
+
+    override fun <I, O> onLaunch(
+        requestCode: Int,
+        contract: ActivityResultContract<I, O>,
+        input: I,
+        options: ActivityOptionsCompat?,
+    ) {
+        launchedRequestCodes += requestCode
+    }
 }
 
 private class InMemoryAuthSessionStore : AuthSessionStore {
