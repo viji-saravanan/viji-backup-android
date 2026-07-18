@@ -55,7 +55,7 @@ Load only the packet that matches the task. Do not read all notes by default.
 | Architecture or implementation planning | [[Drive Backup App Architecture]], [[Drive Backup App Sync Semantics]], [[Drive Backup App Failure Matrix]], [[Drive Backup App Security Privacy And Access]] |
 | Android storage, background sync, or permissions | [[Drive Backup App Architecture]], [[Drive Backup App Sync Semantics]], [[Drive Backup App Source Register]] |
 | Settings, frequency, mobile data, or cancellation | [[Drive Backup App Settings Model]], [[Drive Backup App Product Requirements]], [[Drive Backup App Sync Semantics]], [[Drive Backup App Failure Matrix]], [[Drive Backup App Testing Plan]] |
-| Google Drive authorization or shared-folder behavior | [[Drive Backup App Project State]], [[Drive Backup App Security Privacy And Access]], [[Drive Backup App Architecture]], [[Drive Backup App Testing Plan]], [[Drive Backup App Source Register]] |
+| Google Drive authorization or shared-folder behavior | [[Drive Backup App Phase 4 Drive Authorization And Destination Plan]], [[Drive Backup App Project State]], [[Drive Backup App Security Privacy And Access]], [[Drive Backup App Architecture]], [[Drive Backup App Testing Plan]], [[Drive Backup App Source Register]] |
 | Email notification design | [[Drive Backup App Product Requirements]], [[Drive Backup App Failure Matrix]], [[Drive Backup App Security Privacy And Access]], [[Drive Backup App Source Register]] |
 | Encryption discussion | [[Drive Backup App Security Privacy And Access]], [[Drive Backup App Product Requirements]] |
 | Testing | [[Drive Backup App Fresh Laptop Setup And Test Runbook]], [[Drive Backup App Testing Plan]], [[Drive Backup App Failure Matrix]], [[Drive Backup App Product Requirements]] |
@@ -84,6 +84,7 @@ Do not infer Android, Google Drive, Gmail, Apps Script, or GitHub behavior from 
 - [[Drive Backup App Phase 3 Completion Execution Plan]]
 - [[Drive Backup App Phase 4 Session Persistence Implementation Plan]]
 - [[Drive Backup App Phase 4 Downloads Access Implementation Plan]]
+- [[Drive Backup App Phase 4 Drive Authorization And Destination Plan]]
 - [[Drive Backup App Android Engineering Research]]
 - [[Drive Backup App Strategy]]
 - [[Drive Backup App Standard Practice Assessment]]

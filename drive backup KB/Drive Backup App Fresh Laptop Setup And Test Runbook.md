@@ -183,30 +183,30 @@ Do not copy another contributor's `local.properties`; it is machine-specific.
 Clone the repository into any local directory:
 
 ```bash
-gh repo clone viji-saravanan/drive-api-backup viji-backup
+gh repo clone viji-saravanan/viji-backup-android viji-backup
 cd viji-backup
 git fetch --all --prune
 ```
 
-For Phase 3 test-only review, inspect the remote branch without committing:
+For Phase 4 test-only review, inspect the remote branch without committing:
 
 ```bash
-git switch --detach origin/feature/phase-3-local-folder-selection
+git switch --detach origin/feature/phase-4-downloads-drive-setup
 ```
 
-For Phase 3 review or fixes, create a new branch from the Phase 3 branch:
+For Phase 4 review or fixes, create a new branch from the Phase 4 branch:
 
 ```bash
-git switch -c contributor/<github-user>/phase-3-review \
-  origin/feature/phase-3-local-folder-selection
+git switch -c contributor/<github-user>/phase-4-review \
+  origin/feature/phase-4-downloads-drive-setup
 ```
 
 Rules:
 
-- never push directly to `main`, `dev`, `setup/phase-1-foundation`, or
-  either shared Phase 2 or Phase 3 feature branch;
-- a Phase 3 review/fix PR must target
-  `feature/phase-3-local-folder-selection`;
+- never push directly to `main`, `dev`, `setup/phase-1-foundation`, or a shared
+  phase feature branch;
+- a Phase 4 review/fix PR must target
+  `feature/phase-4-downloads-drive-setup` while draft PR #6 remains active;
 - do not merge a stacked phase branch before its documented base is ready;
 - keep commits sequential and scoped to one understandable step;
 - do not rewrite or revert unrelated changes from another contributor.

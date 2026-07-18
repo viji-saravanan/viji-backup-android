@@ -257,6 +257,7 @@ Trigger phrases:
 
 Required notes:
 
+- [[Drive Backup App Phase 4 Drive Authorization And Destination Plan]]
 - [[Drive Backup App Architecture]]
 - [[Drive Backup App Security Privacy And Access]]
 - [[Drive Backup App Open Questions And Assumptions]]
@@ -266,12 +267,14 @@ Required notes:
 Must verify:
 
 - Drive scopes.
+- Google Identity `AuthorizationClient` account-binding and resolution behavior.
 - Drive Picker or folder selection behavior.
 - Shared folder ownership/quota behavior.
 
 Exit checks:
 
 - User signs in with their own account.
+- Drive authorization is a separate current-token boundary from local sign-in.
 - Shared folder access is proven before upload.
 - Per-user/per-device folder is created.
 - Ownership/quota spike is recorded.

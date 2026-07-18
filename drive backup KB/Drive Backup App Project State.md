@@ -29,9 +29,9 @@ Knowledge base:
 ## Current Implementation
 
 Phase 1 foundation, Phase 2 authentication, the public-source workflow, and the
-earlier Phase 3 local-folder slices are integrated on `main` through PRs #1-#4.
-The completed Phase 3 branch is the base of
-`feature/phase-4-downloads-drive-setup`. Draft PR #6 contains the first two
+complete Phase 3 local-folder implementation are integrated on `main` through
+PRs #1-#5. `feature/phase-4-downloads-drive-setup` and draft PR #6 now target
+`main` directly and contain the first two
 Phase 4 boundaries: durable approved-session reuse with explicit account
 switching, and exact top-level Downloads access with a read-only scanner. Their
 implementation plans, source claims, and physical-device evidence are committed
@@ -428,3 +428,4 @@ Next sequence:
 - [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]]
 - [[Drive Backup App Phase 4 Session Persistence Implementation Plan]]
 - [[Drive Backup App Phase 4 Downloads Access Implementation Plan]]
+- [[Drive Backup App Phase 4 Drive Authorization And Destination Plan]]

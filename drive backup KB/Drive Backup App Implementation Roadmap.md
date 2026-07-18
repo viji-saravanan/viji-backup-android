@@ -125,11 +125,10 @@ Exit gate:
 
 ## Phase 3: Local Folder Selection
 
-Status: the initial folder-selection slices are integrated into `main` through
-PR #4. The completion branch and draft PR #5 now contain typed health,
+Status: complete and integrated into `main` through PR #5. Typed health,
 enablement, iterative read-only scanning, protected controls, durable sign-out
-recovery, and the completed safe Samsung live matrix. Whole-branch review is the
-only remaining Phase 3 merge gate. The execution contract is
+recovery, and the safe Samsung live matrix are all preserved in the merge
+history. The execution contract is
 [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]].
 
 Load:
@@ -170,6 +169,7 @@ Load:
 - [[Drive Backup App Source Register]]
 - [[Drive Backup App Phase 4 Session Persistence Implementation Plan]]
 - [[Drive Backup App Phase 4 Downloads Access Implementation Plan]]
+- [[Drive Backup App Phase 4 Drive Authorization And Destination Plan]]
 
 Deliverables:
 
