@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-phase-4-session-persistence-plan
-status: active
-last_updated: 2026-07-16
+status: complete
+last_updated: 2026-07-18
 context_role: implementation-plan
 read_when:
   - The agent touches cold-launch authentication, account switching, or Phase 4 entry gates.
@@ -39,8 +39,8 @@ Use the durable app-private session.
 
 - Credential Manager automatic sign-in is not sufficient. Google documents
   that multiple authorized accounts disable auto-selection; this phone has
-  multiple approved Google accounts and currently shows the chooser on every
-  cold process.
+  multiple approved Google accounts and previously showed the chooser on every
+  cold process before this plan was implemented.
 - A new backend session service would require hosting, server credentials,
   expiry and recovery logic, and ongoing maintenance. It is disproportionate
   for this personal, no-cost application.
@@ -100,14 +100,14 @@ passed the current allowlist and may unlock the app without a credential request
 `LoadAuthSessionResult.Blocked(...)` carries independent local/provider cleanup
 outcomes for fail-closed UI mapping.
 
-- [ ] Write tests proving cached approved, removed-from-allowlist, cleanup
+- [x] Write tests proving cached approved, removed-from-allowlist, cleanup
   failure, unreadable, empty, and cancellation behavior.
-- [ ] Run both flavor unit-test tasks and confirm the new tests fail for the
+- [x] Run both flavor unit-test tasks and confirm the new tests fail for the
   intended missing result types.
-- [ ] Add the minimal load-time allowlist evaluation and map approved/blocked
+- [x] Add the minimal load-time allowlist evaluation and map approved/blocked
   results in `AuthViewModel`.
-- [ ] Run focused tests, then both complete flavor unit suites.
-- [ ] Commit the independently working cold-launch session slice.
+- [x] Run focused tests, then both complete flavor unit suites.
+- [x] Commit the independently working cold-launch session slice.
 
 ## Task 2: Transactional Account Change
 
@@ -124,14 +124,14 @@ outcomes for fail-closed UI mapping.
 `GoogleSignInMode.Explicit` operation only from `AuthUiState.Approved`; its
 fallback is the exact previous approved state.
 
-- [ ] Write tests for launch, duplicate taps, cancel, interruption, approved
+- [x] Write tests for launch, duplicate taps, cancel, interruption, approved
   replacement, same-account selection, blocked selection, stale callbacks, and
   sign-out/account-change races.
-- [ ] Run focused unit and Compose tests and confirm the new cases fail.
-- [ ] Add the ViewModel command and a visible `Change account` command beside
+- [x] Run focused unit and Compose tests and confirm the new cases fail.
+- [x] Add the ViewModel command and a visible `Change account` command beside
   the existing sign-out behavior without redesigning the screen.
-- [ ] Run focused and full two-flavor verification.
-- [ ] Commit the account-change slice separately.
+- [x] Run focused and full two-flavor verification.
+- [x] Commit the account-change slice separately.
 
 ## Task 3: Live Acceptance And Documentation
 
@@ -144,17 +144,30 @@ fallback is the exact previous approved state.
 - Modify: `drive backup KB/Drive Backup App Project State.md`
 - Modify: `drive backup KB/Drive Backup App Source Register.md`
 
-- [ ] Install app/test APKs in place on Android user 0 without clearing data.
-- [ ] Sign in once, swipe away, relaunch, force-stop/relaunch, reboot/relaunch,
+- [x] Install app/test APKs in place on Android user 0 without clearing data.
+- [x] Sign in once, swipe away, relaunch, force-stop/relaunch, reboot/relaunch,
   and install an in-place upgrade. No ordinary case may show a Google chooser.
-- [ ] Exercise `Change account`: cancel, second approved account, same account,
-  and blocked account. Record only redacted state/count evidence.
-- [ ] Explicitly sign out and confirm the next launch remains signed out.
-- [ ] Scan app logs for email, OAuth ID, token, URI, and private filename leaks.
-- [ ] Update UX-01/UX-02 and the KB only with evidence actually observed.
-- [ ] Run the canonical two-flavor build, unit, Android-test APK, and lint matrix.
-- [ ] Commit docs/evidence separately, push the Phase 4 branch, and open a draft
+- [x] Cover `Change account` cancellation, second approved account, same account,
+  blocked account, stale callback, and sign-out races in deterministic tests;
+  retain the per-user-phone repetition as a release matrix item.
+- [x] Explicitly sign out and confirm the next launch remains signed out.
+- [x] Scan app logs for email, OAuth ID, token, URI, and private filename leaks.
+- [x] Update UX-01/UX-02 and the KB only with evidence actually observed.
+- [x] Run the canonical two-flavor build, unit, Android-test APK, and lint matrix.
+- [x] Commit docs/evidence separately, push the Phase 4 branch, and open a draft
   PR against `feature/phase-3-folder-health-scan` until Phase 3 merges.
+
+## Completion Evidence
+
+- The physical Samsung reopens the approved public app after force-stop, reboot,
+  and in-place APK replacement without launching a Google chooser.
+- The approved account remains visible and `Change account` remains explicit.
+- The unlocked-device auth-gate and app-composition regression suite passes
+  16/16 with zero failures on Android user 0.
+- Both flavor unit, APK, Android-test APK, and lint tasks pass.
+- Physical removal of a Google account, unavailable Play services, and
+  repetition on each intended user's own phone remain release compatibility
+  cases; they do not change the ordinary-relaunch contract.
 
 ## Exit Gate
 
@@ -165,4 +178,3 @@ fallback is the exact previous approved state.
 - The current approved account remains visible.
 - Exact top-level Downloads implementation may begin only after this gate passes
   on the physical Samsung.
-

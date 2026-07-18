@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-security-privacy-access
 status: active
-last_updated: 2026-07-13
+last_updated: 2026-07-18
 context_role: security-privacy
 read_when:
   - The agent touches auth, Drive sharing, tokens, email, encryption, or privacy.
@@ -57,11 +57,13 @@ for private flavor/OAuth testing but is not a distributable public artifact.
 
 Phase 2 persists the stable Google subject with normalized email metadata but
 evaluates the local product gate by email because only addresses are configured.
-Address reassignment is therefore a tracked identity-transfer risk. Cached
-metadata never unlocks a cold process by itself. After explicit approval, the
-same running process retains approval across Home, DocumentsUI, and activity
-recreation; a new process starts at `ReauthenticationRequired`. Future Drive
-work must still recheck current authorization before every protected operation.
+Address reassignment is therefore a tracked identity-transfer risk. After
+explicit approval, an allowlist-valid cached record unlocks the local app across
+Home, DocumentsUI, activity recreation, process death, force-stop, reboot, and
+in-place upgrade. It does not authorize Google Drive. Future Drive work must
+verify the active Google authorization and destination ACL before every
+protected cloud operation; account removal or revoked Drive access must fail
+closed without deleting local mappings.
 
 For the current personal-use installation, every configured approved account is
 an explicit co-administrator of local folder mappings on that installation.
@@ -94,10 +96,13 @@ or a grant for a URI that is not referenced by either a completed mapping or the
 durable in-flight selection record.
 
 Android 11 and newer intentionally prevent this picker from granting the exact
-Downloads root. Supporting that root would require a separate, explicit
-all-files-access source type, direct-path or MediaStore traversal, a system
-settings consent flow, and a larger security/test matrix. Do not silently add
-`MANAGE_EXTERNAL_STORAGE`; this remains a product decision.
+Downloads root. Phase 4 therefore implements Downloads as a separate,
+installation-scoped source. API 30+ requires explicit package-specific Android
+all-files-access consent and rechecks the actual grant before traversal; API
+24-29 uses the read-only SAF fallback. The broad OS permission is never treated
+as permission to mutate content: production interfaces expose no create, write,
+rename, move, or delete operation. `Android/data`, `Android/obb`, and other
+OS-protected app sandboxes are not claimed as supported sources.
 
 `Intent.EXTRA_LOCAL_ONLY` is a provider-filtering request, not proof that the
 returned tree is physically stored on the phone. Treat provider authority,

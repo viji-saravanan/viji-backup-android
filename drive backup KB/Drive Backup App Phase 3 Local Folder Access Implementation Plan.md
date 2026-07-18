@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-phase-3-local-folder-access-implementation-plan
 status: active
-last_updated: 2026-07-16
+last_updated: 2026-07-18
 context_role: implementation-plan
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
@@ -59,9 +59,9 @@ the only pre-merge Phase 3 gate.
 - Every approved identity configured for one installation is an intentional
   co-administrator of its folder mappings. Before unrelated people are added to
   the allowlist, mappings must be redesigned with explicit profile ownership.
-- Every new user action is protected by the Phase 2 auth gate. The approved
-  process remains approved while DocumentsUI or Home is foregrounded; a cold
-  process reauthenticates. Picker completion may only consume the exact durable
+- Every new user action is protected by the auth gate. The approved local
+  session remains approved across Home, DocumentsUI, and ordinary cold launch;
+  Drive authorization remains separate. Picker completion may only consume the exact durable
   request that launched that picker.
 - Local access is read only. The app never renames, edits, moves, or deletes a
   source file or source folder.
@@ -71,9 +71,9 @@ the only pre-merge Phase 3 gate.
   Phase 5, where duplicate upload and destination semantics are available.
 - The current SAF source accepts only locations the system picker grants and
   does not request broad storage access. The final app must also support the
-  exact Downloads root through a separate, explicit all-files-access source.
-  It is the first mandatory Phase 4 milestone and must not weaken or masquerade
-  as the SAF permission model.
+  exact Downloads root through the separate, explicit Phase 4 all-files-access
+  source. That completed source does not weaken or masquerade as the SAF
+  permission model.
 
 ## Non-Negotiable Android Limits
 
@@ -88,10 +88,10 @@ folder picker does not grant tree access to:
 
 A subfolder inside Downloads can be selected when the provider permits it. The
 exact Downloads root cannot be granted under the chosen SAF model. The user has
-confirmed whole-Downloads coverage is mandatory for the final app, so a later
-source must use an explicit `MANAGE_EXTERNAL_STORAGE` settings flow, remain
-read-only in app code, detect revocation, and receive separate Samsung
-acceptance. It must not be introduced silently in this phase.
+confirmed whole-Downloads coverage is mandatory. Phase 4 now owns an explicit
+`MANAGE_EXTERNAL_STORAGE` settings flow that remains read only in app code,
+detects revocation, and has separate Samsung acceptance. The Phase 3 SAF module
+must still never claim or consume that broad permission.
 
 `Intent.EXTRA_LOCAL_ONLY` narrows the picker toward local providers, but Android
 documents it as a hint. It is not proof that a returned tree is primary internal
@@ -260,15 +260,16 @@ in `ContentResolver.persistedUriPermissions` with read enabled and write
 disabled. If an older development build left a write grant for the same tree,
 release the write capability and revalidate the read grant.
 
-Do not add `READ_EXTERNAL_STORAGE`, `READ_MEDIA_*`, `WRITE_EXTERNAL_STORAGE`, or
-`MANAGE_EXTERNAL_STORAGE` to the manifest.
+The Phase 3 SAF source must not depend on `READ_EXTERNAL_STORAGE`,
+`READ_MEDIA_*`, `WRITE_EXTERNAL_STORAGE`, or `MANAGE_EXTERNAL_STORAGE`. The
+app-level `MANAGE_EXTERNAL_STORAGE` declaration belongs exclusively to the
+separate Phase 4 Downloads source.
 
 ## Auth And Picker State Flow
 
-Approval is process-scoped. Home, DocumentsUI, and activity recreation must not
-trigger another Google chooser while the same approved ViewModel/process is
-alive. A new process restores cached identity only as
-`ReauthenticationRequired` and must prove approval again.
+Approval is an allowlist-revalidated local app session. Home, DocumentsUI,
+activity recreation, and ordinary cold launch must not trigger another Google
+chooser. This local session does not prove current Drive authorization.
 
 ```text
 Approved actor
