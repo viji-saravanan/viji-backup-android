@@ -126,6 +126,8 @@ Cover:
 - backup health dashboard states;
 - app restart with configured folder;
 - sync progress UI;
+- localized human-readable sizes, durations, rates, and timestamps without raw
+  machine values in ordinary UI;
 - sync history UI;
 - diagnostics export;
 - upgrade migration.

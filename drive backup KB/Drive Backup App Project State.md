@@ -376,6 +376,9 @@ Phase 4 session and Downloads evidence on 2026-07-18:
   backing out remains blocked, while restored permission returns `Ready`;
 - live disable/enable, confirmed remove, unused-grant classification, and
   reconfiguration complete without modifying source content;
+- folder and Downloads scan progress now use Android-localized short sizes; the
+  Samsung UI suite proves a gigabyte-scale value is readable and that its raw
+  byte count is absent from the normal UI (16/16 targeted tests);
 - no evidence contains an account address, device serial, path, filename,
   OAuth identifier, or token.
 
