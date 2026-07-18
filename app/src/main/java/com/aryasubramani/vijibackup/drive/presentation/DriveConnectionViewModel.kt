@@ -27,6 +27,7 @@ internal enum class DriveConnectionHealth {
     DestinationNotFolder,
     DestinationTrashed,
     DestinationReadOnly,
+    DestinationQuotaExceeded,
     TemporaryFailure,
     ProviderUnavailable,
     InvalidResponse,
@@ -185,6 +186,8 @@ private fun DriveConnectionResult.toHealth(): DriveConnectionHealth = when (this
     DriveConnectionResult.DestinationNotFolder -> DriveConnectionHealth.DestinationNotFolder
     DriveConnectionResult.DestinationTrashed -> DriveConnectionHealth.DestinationTrashed
     DriveConnectionResult.DestinationReadOnly -> DriveConnectionHealth.DestinationReadOnly
+    DriveConnectionResult.DestinationQuotaExceeded ->
+        DriveConnectionHealth.DestinationQuotaExceeded
     DriveConnectionResult.TemporaryFailure -> DriveConnectionHealth.TemporaryFailure
     DriveConnectionResult.ProviderUnavailable -> DriveConnectionHealth.ProviderUnavailable
     DriveConnectionResult.InvalidResponse -> DriveConnectionHealth.InvalidResponse

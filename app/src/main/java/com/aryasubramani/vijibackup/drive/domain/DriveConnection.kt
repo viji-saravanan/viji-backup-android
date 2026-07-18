@@ -10,6 +10,7 @@ internal enum class DriveConnectionResult {
     DestinationNotFolder,
     DestinationTrashed,
     DestinationReadOnly,
+    DestinationQuotaExceeded,
     TemporaryFailure,
     ProviderUnavailable,
     InvalidResponse,

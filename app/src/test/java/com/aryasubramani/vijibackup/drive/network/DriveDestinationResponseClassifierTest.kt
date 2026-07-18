@@ -93,6 +93,58 @@ class DriveDestinationResponseClassifierTest {
     }
 
     @Test
+    fun forbiddenReasonSeparatesRetryAuthorizationPermissionAndQuota() {
+        assertClassified(
+            DriveConnectionResult.TemporaryFailure,
+            statusCode = 403,
+            body = errorBody("userRateLimitExceeded"),
+        )
+        assertClassified(
+            DriveConnectionResult.NeedsAuthorization,
+            statusCode = 403,
+            body = errorBody("insufficientPermissions"),
+        )
+        assertClassified(
+            DriveConnectionResult.DestinationReadOnly,
+            statusCode = 403,
+            body = errorBody("insufficientFilePermissions"),
+        )
+        assertClassified(
+            DriveConnectionResult.DestinationQuotaExceeded,
+            statusCode = 403,
+            body = errorBody("storageQuotaExceeded"),
+        )
+    }
+
+    @Test
+    fun malformedOrUnknownForbiddenReasonRemainsInaccessible() {
+        listOf(null, "", "not-json", errorBody("unknownReason")).forEach { body ->
+            assertClassified(
+                DriveConnectionResult.DestinationMissingOrInaccessible,
+                statusCode = 403,
+                body = body,
+            )
+        }
+    }
+
+    @Test
+    fun oversizedProviderBodyIsInvalidForEveryStatus() {
+        listOf(200, 403).forEach { statusCode ->
+            assertEquals(
+                DriveConnectionResult.InvalidResponse,
+                classifyDriveDestinationResponse(
+                    configuredFolderId = "configured-folder",
+                    response = DriveDestinationHttpResponse(
+                        statusCode = statusCode,
+                        body = null,
+                        bodyLimitExceeded = true,
+                    ),
+                ),
+            )
+        }
+    }
+
+    @Test
     fun retryableHttpStatusesAreTemporary() {
         listOf(408, 425, 429, 500, 502, 503, 504, 599).forEach { statusCode ->
             assertClassified(
@@ -145,5 +197,13 @@ class DriveDestinationResponseClassifierTest {
             "canAddChildren": $canAddChildren,
             "canListChildren": $canListChildren
           }$extra
+        }""".trimIndent()
+
+    private fun errorBody(reason: String): String =
+        """{
+          "error": {
+            "errors": [{"reason": "$reason"}],
+            "code": 403
+          }
         }""".trimIndent()
 }
