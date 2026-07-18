@@ -6,6 +6,19 @@ import org.junit.Test
 
 class DriveDestinationResponseClassifierTest {
     @Test
+    fun responseDescriptionNeverIncludesProviderBody() {
+        val response = DriveDestinationHttpResponse(
+            statusCode = 200,
+            body = "private-provider-metadata",
+        )
+
+        assertEquals(
+            "DriveDestinationHttpResponse(statusCode=200, body=REDACTED)",
+            response.toString(),
+        )
+    }
+
+    @Test
     fun writableListableFolderIsReady() {
         assertClassified(
             expected = DriveConnectionResult.Ready,

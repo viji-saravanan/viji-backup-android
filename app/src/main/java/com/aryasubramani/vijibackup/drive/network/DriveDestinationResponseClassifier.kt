@@ -9,10 +9,13 @@ import kotlinx.serialization.json.jsonObject
 
 internal const val DRIVE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 
-internal data class DriveDestinationHttpResponse(
+internal class DriveDestinationHttpResponse(
     val statusCode: Int,
     val body: String?,
-)
+) {
+    override fun toString(): String =
+        "DriveDestinationHttpResponse(statusCode=$statusCode, body=REDACTED)"
+}
 
 internal fun classifyDriveDestinationResponse(
     configuredFolderId: String,
