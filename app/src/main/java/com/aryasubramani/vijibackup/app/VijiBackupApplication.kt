@@ -11,6 +11,6 @@ class VijiBackupApplication : Application() {
     @VisibleForTesting
     internal var testAppContainer: AppContainer? = null
 
-    val appContainer: AppContainer
+    internal val appContainer: AppContainer
         get() = testAppContainer ?: defaultAppContainer
 }

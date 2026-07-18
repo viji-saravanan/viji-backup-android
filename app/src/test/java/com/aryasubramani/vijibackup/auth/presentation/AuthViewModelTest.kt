@@ -70,7 +70,7 @@ class AuthViewModelTest {
     }
 
     @Test
-    fun cachedSessionRequiresReauthenticationBeforeAuthorizedAccountAttempt() = runTest {
+    fun cachedApprovedSessionUnlocksWithoutCredentialRequest() = runTest {
         val account = approvedAccount()
         val viewModel = createViewModel(
             store = FakeAuthSessionStore().apply { this.account = account },
@@ -78,22 +78,25 @@ class AuthViewModelTest {
 
         advanceUntilIdle()
 
-        assertEquals(
-            AuthUiState.ReauthenticationRequired(
-                account = account,
-                automaticAttemptPending = true,
-            ),
-            viewModel.uiState.value,
+        assertEquals(AuthUiState.Approved(account), viewModel.uiState.value)
+    }
+
+    @Test
+    fun cachedAccountRemovedFromAllowlistRemainsBlocked() = runTest {
+        val account = approvedAccount()
+        val store = FakeAuthSessionStore().apply { this.account = account }
+        val credentialStateClearer = FakeCredentialStateClearer()
+        val viewModel = createViewModel(
+            store = store,
+            credentialStateClearer = credentialStateClearer,
+            allowedAccounts = emptySet(),
         )
 
-        viewModel.startAutomaticReauthentication()
+        advanceUntilIdle()
 
-        val signingIn = viewModel.uiState.value
-        assertTrue(signingIn is AuthUiState.SigningIn)
-        assertEquals(
-            GoogleSignInMode.AuthorizedAccounts,
-            (signingIn as AuthUiState.SigningIn).request?.mode,
-        )
+        assertEquals(AuthUiState.Blocked(account), viewModel.uiState.value)
+        assertEquals(null, store.account)
+        assertEquals(1, credentialStateClearer.clearCount)
     }
 
     @Test
@@ -146,6 +149,80 @@ class AuthViewModelTest {
 
         assertEquals(AuthUiState.Approved(account), viewModel.uiState.value)
         assertEquals(account, store.account)
+    }
+
+    @Test
+    fun changeAccountFromApprovedSessionRequestsExplicitChooser() = runTest {
+        val account = approvedAccount()
+        val viewModel = createViewModel(
+            store = FakeAuthSessionStore().apply { this.account = account },
+        )
+        advanceUntilIdle()
+
+        viewModel.changeAccount()
+
+        val request = requireNotNull(
+            (viewModel.uiState.value as AuthUiState.SigningIn).request,
+        )
+        assertEquals(GoogleSignInMode.Explicit, request.mode)
+    }
+
+    @Test
+    fun cancellingAccountChangeRestoresCurrentApprovedSession() = runTest {
+        val account = approvedAccount()
+        val store = FakeAuthSessionStore().apply { this.account = account }
+        val viewModel = createViewModel(store = store)
+        advanceUntilIdle()
+        viewModel.changeAccount()
+        val request = requireNotNull(
+            (viewModel.uiState.value as AuthUiState.SigningIn).request,
+        )
+
+        viewModel.onSignInResult(request.id, GoogleSignInResult.Cancelled)
+
+        assertEquals(AuthUiState.Approved(account), viewModel.uiState.value)
+        assertEquals(account, store.account)
+    }
+
+    @Test
+    fun approvedAccountChangeReplacesPersistedSession() = runTest {
+        val firstAccount = approvedAccount()
+        val secondAccount = secondApprovedAccount()
+        val store = FakeAuthSessionStore().apply { account = firstAccount }
+        val viewModel = createViewModel(
+            store = store,
+            allowedAccounts = setOf(APPROVED_EMAIL, SECOND_APPROVED_EMAIL),
+        )
+        advanceUntilIdle()
+        viewModel.changeAccount()
+        val request = requireNotNull(
+            (viewModel.uiState.value as AuthUiState.SigningIn).request,
+        )
+
+        viewModel.onSignInResult(request.id, GoogleSignInResult.Success(secondAccount))
+        advanceUntilIdle()
+
+        assertEquals(AuthUiState.Approved(secondAccount), viewModel.uiState.value)
+        assertEquals(secondAccount, store.account)
+    }
+
+    @Test
+    fun blockedAccountChangeClearsPreviousApprovedSession() = runTest {
+        val firstAccount = approvedAccount()
+        val blockedAccount = blockedAccount()
+        val store = FakeAuthSessionStore().apply { account = firstAccount }
+        val viewModel = createViewModel(store = store)
+        advanceUntilIdle()
+        viewModel.changeAccount()
+        val request = requireNotNull(
+            (viewModel.uiState.value as AuthUiState.SigningIn).request,
+        )
+
+        viewModel.onSignInResult(request.id, GoogleSignInResult.Success(blockedAccount))
+        advanceUntilIdle()
+
+        assertEquals(AuthUiState.Blocked(blockedAccount), viewModel.uiState.value)
+        assertEquals(null, store.account)
     }
 
     @Test
@@ -244,6 +321,7 @@ class AuthViewModelTest {
             credentialStateClearer = credentialStateClearer,
         )
         advanceUntilIdle()
+        viewModel.requireReauthentication()
         viewModel.startAutomaticReauthentication()
         val request = requireNotNull(
             (viewModel.uiState.value as AuthUiState.SigningIn).request,
@@ -348,6 +426,7 @@ class AuthViewModelTest {
             store = FakeAuthSessionStore().apply { this.account = account },
         )
         advanceUntilIdle()
+        viewModel.requireReauthentication()
         viewModel.startAutomaticReauthentication()
         val request = requireNotNull(
             (viewModel.uiState.value as AuthUiState.SigningIn).request,
@@ -372,6 +451,7 @@ class AuthViewModelTest {
             store = FakeAuthSessionStore().apply { this.account = account },
         )
         advanceUntilIdle()
+        viewModel.requireReauthentication()
         viewModel.startAutomaticReauthentication()
         val automaticRequest = requireNotNull(
             (viewModel.uiState.value as AuthUiState.SigningIn).request,
@@ -391,6 +471,7 @@ class AuthViewModelTest {
         val store = FakeAuthSessionStore().apply { account = approvedAccount() }
         val viewModel = createViewModel(store = store)
         advanceUntilIdle()
+        viewModel.requireReauthentication()
         viewModel.startAutomaticReauthentication()
         val request = requireNotNull(
             (viewModel.uiState.value as AuthUiState.SigningIn).request,
@@ -402,6 +483,25 @@ class AuthViewModelTest {
         assertEquals(AuthUiState.SignedOut(), viewModel.uiState.value)
         assertEquals(null, store.account)
         assertEquals(1, store.clearCount)
+    }
+
+    @Test
+    fun securityRequiredFailureCanRelockAnApprovedSession() = runTest {
+        val account = approvedAccount()
+        val viewModel = createViewModel(
+            store = FakeAuthSessionStore().apply { this.account = account },
+        )
+        advanceUntilIdle()
+
+        viewModel.requireReauthentication()
+
+        assertEquals(
+            AuthUiState.ReauthenticationRequired(
+                account = account,
+                automaticAttemptPending = true,
+            ),
+            viewModel.uiState.value,
+        )
     }
 
     @Test
@@ -760,12 +860,13 @@ private fun createViewModel(
     store: FakeAuthSessionStore = FakeAuthSessionStore(),
     credentialStateClearer: FakeCredentialStateClearer = FakeCredentialStateClearer(),
     isGoogleSignInConfigured: Boolean = true,
+    allowedAccounts: Set<String> = setOf(APPROVED_EMAIL),
     preSignOut: suspend () -> PendingFolderCleanupResult = {
         PendingFolderCleanupResult.Complete
     },
 ) = AuthViewModel(
     sessionManager = AuthSessionManager(
-        accessPolicy = AccountAccessPolicy(setOf(APPROVED_EMAIL)),
+        accessPolicy = AccountAccessPolicy(allowedAccounts),
         sessionStore = store,
         credentialStateClearer = credentialStateClearer,
     ),
@@ -835,6 +936,14 @@ private fun approvedAccount() = requireNotNull(
     ),
 )
 
+private fun secondApprovedAccount() = requireNotNull(
+    GoogleAccount.create(
+        subject = "second-approved-subject",
+        email = SECOND_APPROVED_EMAIL,
+        displayName = "Second Approved User",
+    ),
+)
+
 private fun authorizeApproved(viewModel: AuthViewModel) {
     viewModel.signIn()
     val request = requireNotNull(
@@ -865,3 +974,4 @@ private class FakeCredentialStateClearer : CredentialStateClearer {
 }
 
 private const val APPROVED_EMAIL = "approved.user@example.test"
+private const val SECOND_APPROVED_EMAIL = "second.approved.user@example.test"

@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -28,6 +29,18 @@ import com.aryasubramani.vijibackup.auth.google.GoogleSignInClient
 import com.aryasubramani.vijibackup.auth.google.GoogleSignInMode
 import com.aryasubramani.vijibackup.auth.google.GoogleSignInResult
 import com.aryasubramani.vijibackup.auth.presentation.AuthTestTags
+import com.aryasubramani.vijibackup.downloadsaccess.data.DownloadsSourceConfiguration
+import com.aryasubramani.vijibackup.downloadsaccess.data.DownloadsSourceStore
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessManager
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessPlatform
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessProbe
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanner
+import com.aryasubramani.vijibackup.drive.domain.DriveConnectionResult
+import com.aryasubramani.vijibackup.drive.google.DriveAuthorizationEvaluation
+import com.aryasubramani.vijibackup.drive.google.DriveAuthorizationProvider
+import com.aryasubramani.vijibackup.drive.google.DriveAuthorizationStart
+import com.aryasubramani.vijibackup.drive.google.DriveConnectionCoordinator
+import com.aryasubramani.vijibackup.drive.network.DriveDestinationHealthProbe
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderScanResult
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMapping
@@ -42,6 +55,7 @@ import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessTestTa
 import com.aryasubramani.vijibackup.folderaccess.saf.FolderPickerResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -72,6 +86,18 @@ class AppCompositionInstrumentedTest {
         assertSame(
             application.appContainer.folderMappingRepository,
             application.appContainer.folderMappingRepository,
+        )
+        assertSame(
+            application.appContainer.downloadsAccessManager,
+            application.appContainer.downloadsAccessManager,
+        )
+        assertSame(
+            application.appContainer.downloadsScanner,
+            application.appContainer.downloadsScanner,
+        )
+        assertSame(
+            application.appContainer.driveConnectionCoordinator,
+            application.appContainer.driveConnectionCoordinator,
         )
     }
 
@@ -131,6 +157,9 @@ class AppCompositionInstrumentedTest {
                 GoogleSignInResult.Success(account)
             }
             override val folderMappingRepository = folderRepository
+            override val downloadsAccessManager = testDownloadsAccessManager()
+            override val downloadsScanner = testDownloadsScanner()
+            override val driveConnectionCoordinator = testDriveConnectionCoordinator()
             override val isGoogleSignInConfigured = true
         }
         application.testAppContainer = fakeContainer
@@ -172,6 +201,124 @@ class AppCompositionInstrumentedTest {
     }
 
     @Test
+    fun mainActivityRestoresCachedApprovedSessionWithoutCredentialRequest() {
+        val application = ApplicationProvider.getApplicationContext<VijiBackupApplication>()
+        val account = approvedAccount()
+        val signInModes = mutableListOf<GoogleSignInMode>()
+        val folderRepository = EmptyFolderMappingRepository()
+        val fakeContainer = object : AppContainer {
+            override val authSessionManager = AuthSessionManager(
+                accessPolicy = AccountAccessPolicy(setOf(account.email)),
+                sessionStore = InMemoryAuthSessionStore(account),
+                credentialStateClearer = CredentialStateClearer {},
+            )
+            override val googleSignInClient = GoogleSignInClient { _, mode ->
+                signInModes += mode
+                error("Cached session must not request a Google credential")
+            }
+            override val folderMappingRepository = folderRepository
+            override val downloadsAccessManager = testDownloadsAccessManager()
+            override val downloadsScanner = testDownloadsScanner()
+            override val driveConnectionCoordinator = testDriveConnectionCoordinator()
+            override val isGoogleSignInConfigured = true
+        }
+        application.testAppContainer = fakeContainer
+
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                composeRule.waitForIdle()
+
+                composeRule.onNodeWithTag(VijiBackupTestTags.ProtectedContent)
+                    .assertIsDisplayed()
+                composeRule.onNodeWithTag(FolderAccessTestTags.Screen).assertIsDisplayed()
+                assertTrue(signInModes.isEmpty())
+                assertEquals(1, folderRepository.observeCalls)
+            }
+        } finally {
+            application.testAppContainer = null
+        }
+    }
+
+    @Test
+    fun mainActivityProbesDriveOnceForTheApprovedAccountAcrossRecreation() {
+        val application = ApplicationProvider.getApplicationContext<VijiBackupApplication>()
+        val account = approvedAccount()
+        val driveAccounts = mutableListOf<GoogleAccount>()
+        val driveCoordinator = DriveConnectionCoordinator(
+            authorizationProvider = object : DriveAuthorizationProvider {
+                override suspend fun begin(account: GoogleAccount): DriveAuthorizationStart {
+                    driveAccounts += account
+                    return DriveAuthorizationStart.Failed(DriveConnectionResult.Ready)
+                }
+
+                override fun complete(
+                    expectedAccount: GoogleAccount,
+                    data: Intent?,
+                ) = DriveAuthorizationEvaluation.Failed(DriveConnectionResult.InvalidResponse)
+            },
+            destinationProbe = DriveDestinationHealthProbe {
+                error("A failed authorization result must not probe")
+            },
+        )
+        val fakeContainer = object : AppContainer {
+            override val authSessionManager = AuthSessionManager(
+                accessPolicy = AccountAccessPolicy(setOf(account.email)),
+                sessionStore = InMemoryAuthSessionStore(account),
+                credentialStateClearer = CredentialStateClearer {},
+            )
+            override val googleSignInClient = GoogleSignInClient { _, _ ->
+                error("Cached session must not request a Google credential")
+            }
+            override val folderMappingRepository = EmptyFolderMappingRepository()
+            override val downloadsAccessManager = testDownloadsAccessManager()
+            override val downloadsScanner = testDownloadsScanner()
+            override val driveConnectionCoordinator = driveCoordinator
+            override val isGoogleSignInConfigured = true
+        }
+        application.testAppContainer = fakeContainer
+
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    driveAccounts.isNotEmpty()
+                }
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    try {
+                        composeRule.onAllNodesWithText(
+                            application.getString(R.string.drive_connection_ready),
+                        ).fetchSemanticsNodes().isNotEmpty()
+                    } catch (_: IllegalStateException) {
+                        false
+                    }
+                }
+
+                composeRule.onNodeWithText(
+                    application.getString(R.string.drive_connection_ready),
+                ).assertIsDisplayed()
+                assertEquals(listOf(account), driveAccounts)
+
+                scenario.recreate()
+                composeRule.waitUntil(timeoutMillis = 5_000) {
+                    try {
+                        composeRule.onAllNodesWithText(
+                            application.getString(R.string.drive_connection_ready),
+                        ).fetchSemanticsNodes().isNotEmpty()
+                    } catch (_: IllegalStateException) {
+                        false
+                    }
+                }
+
+                composeRule.onNodeWithText(
+                    application.getString(R.string.drive_connection_ready),
+                ).assertIsDisplayed()
+                assertEquals(listOf(account), driveAccounts)
+            }
+        } finally {
+            application.testAppContainer = null
+        }
+    }
+
+    @Test
     fun mainActivityCompletesActiveFolderPickerResultThroughRegistryAfterRecreation() {
         val application = ApplicationProvider.getApplicationContext<VijiBackupApplication>()
         val folderRepository = EmptyFolderMappingRepository()
@@ -195,6 +342,9 @@ class AppCompositionInstrumentedTest {
                 error("Sign-in is not expected")
             }
             override val folderMappingRepository = folderRepository
+            override val downloadsAccessManager = testDownloadsAccessManager()
+            override val downloadsScanner = testDownloadsScanner()
+            override val driveConnectionCoordinator = testDriveConnectionCoordinator()
             override val isGoogleSignInConfigured = false
         }
         application.testAppContainer = fakeContainer
@@ -290,6 +440,9 @@ class AppCompositionInstrumentedTest {
                 GoogleSignInResult.Success(account)
             }
             override val folderMappingRepository = folderRepository
+            override val downloadsAccessManager = testDownloadsAccessManager()
+            override val downloadsScanner = testDownloadsScanner()
+            override val driveConnectionCoordinator = testDriveConnectionCoordinator()
             override val isGoogleSignInConfigured = true
         }
         application.testAppContainer = fakeContainer
@@ -432,8 +585,9 @@ private class ControllableActivityResultRegistry : ActivityResultRegistry() {
     }
 }
 
-private class InMemoryAuthSessionStore : AuthSessionStore {
-    private var account: GoogleAccount? = null
+private class InMemoryAuthSessionStore(
+    private var account: GoogleAccount? = null,
+) : AuthSessionStore {
 
     override suspend fun read(): GoogleAccount? = account
 
@@ -445,6 +599,42 @@ private class InMemoryAuthSessionStore : AuthSessionStore {
         account = null
     }
 }
+
+private fun testDownloadsAccessManager() = DownloadsAccessManager(
+    store = object : DownloadsSourceStore {
+        private var configuration = DownloadsSourceConfiguration()
+
+        override suspend fun read(): DownloadsSourceConfiguration = configuration
+
+        override suspend fun write(configuration: DownloadsSourceConfiguration) {
+            this.configuration = configuration
+        }
+    },
+    accessProbe = object : DownloadsAccessProbe {
+        override val platform = DownloadsAccessPlatform.AllFiles
+
+        override fun hasAccess() = false
+
+        override fun isPrimaryStorageAvailable() = true
+
+        override fun isDownloadsRootReadable() = true
+    },
+)
+
+private fun testDownloadsScanner() = DownloadsScanner { emptyFlow() }
+
+private fun testDriveConnectionCoordinator(
+    result: DriveConnectionResult = DriveConnectionResult.ConfigurationRequired,
+) = DriveConnectionCoordinator(
+    authorizationProvider = object : DriveAuthorizationProvider {
+        override suspend fun begin(account: GoogleAccount) =
+            DriveAuthorizationStart.Failed(result)
+
+        override fun complete(expectedAccount: GoogleAccount, data: Intent?) =
+            DriveAuthorizationEvaluation.Failed(result)
+    },
+    destinationProbe = DriveDestinationHealthProbe { result },
+)
 
 private fun approvedAccount() = requireNotNull(
     GoogleAccount.create(

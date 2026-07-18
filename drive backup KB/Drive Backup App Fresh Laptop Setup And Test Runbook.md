@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-fresh-laptop-setup-test-runbook
 status: active
-last_updated: 2026-07-16
+last_updated: 2026-07-18
 context_role: setup-and-repeatable-testing
 read_when:
   - A contributor or reviewer is starting on a different laptop.
@@ -183,30 +183,30 @@ Do not copy another contributor's `local.properties`; it is machine-specific.
 Clone the repository into any local directory:
 
 ```bash
-gh repo clone viji-saravanan/drive-api-backup viji-backup
+gh repo clone viji-saravanan/viji-backup-android viji-backup
 cd viji-backup
 git fetch --all --prune
 ```
 
-For Phase 3 test-only review, inspect the remote branch without committing:
+For Phase 4 test-only review, inspect the remote branch without committing:
 
 ```bash
-git switch --detach origin/feature/phase-3-local-folder-selection
+git switch --detach origin/feature/phase-4-downloads-drive-setup
 ```
 
-For Phase 3 review or fixes, create a new branch from the Phase 3 branch:
+For Phase 4 review or fixes, create a new branch from the Phase 4 branch:
 
 ```bash
-git switch -c contributor/<github-user>/phase-3-review \
-  origin/feature/phase-3-local-folder-selection
+git switch -c contributor/<github-user>/phase-4-review \
+  origin/feature/phase-4-downloads-drive-setup
 ```
 
 Rules:
 
-- never push directly to `main`, `dev`, `setup/phase-1-foundation`, or
-  either shared Phase 2 or Phase 3 feature branch;
-- a Phase 3 review/fix PR must target
-  `feature/phase-3-local-folder-selection`;
+- never push directly to `main`, `dev`, `setup/phase-1-foundation`, or a shared
+  phase feature branch;
+- a Phase 4 review/fix PR must target
+  `feature/phase-4-downloads-drive-setup` while draft PR #6 remains active;
 - do not merge a stacked phase branch before its documented base is ready;
 - keep commits sequential and scoped to one understandable step;
 - do not rewrite or revert unrelated changes from another contributor.
@@ -287,7 +287,7 @@ Fill these keys through an approved private channel:
 
 | Key | Required for | Value source |
 |---|---|---|
-| `vijiBackup.driveUploadFolderId` | Future Phase 4 Drive tests | Shared upload folder ID |
+| `vijiBackup.driveUploadFolderId` | Drive connection and future upload tests | Shared upload folder ID |
 | `vijiBackup.allowedGoogleAccounts` | Live auth | Comma-separated approved test accounts |
 | `vijiBackup.internalAndroidOAuthClientId` | Internal flavor identity | Android OAuth client for internal package and this signing SHA-1 |
 | `vijiBackup.publicAndroidOAuthClientId` | Public flavor identity | Android OAuth client for public package and this signing SHA-1 |
@@ -412,6 +412,20 @@ These suites use synthetic credentials and test Compose hosts. They do not
 select real Google accounts or prove access to a user's real folders. Their
 results supplement, but never replace, the applicable live-device matrix.
 
+Run connected suites before establishing live state in that package. The
+current Gradle/AGP connected-test flow can remove its temporary target-package
+installation at the end, which also removes that package's app data. For live
+acceptance, assemble first and replace the intended user-0 app in place:
+
+```bash
+adb install --user 0 -r -t \
+  app/build/outputs/apk/public/debug/app-public-debug.apk
+```
+
+Use the internal APK path instead only when testing the internal package. Do
+not run a connected-test task for that same package again until its live-state
+evidence is complete.
+
 To run one instrumentation class:
 
 ```bash
@@ -459,13 +473,13 @@ Run these cases manually:
 | AUTH-LIVE-01 | Fresh launch | Signed-out gate; protected content absent |
 | AUTH-LIVE-02 | Approved account | Consent/chooser completes; access confirmed |
 | AUTH-LIVE-03 | Back out of chooser | Returns to signed out; no cached approval |
-| AUTH-LIVE-04 | Force-stop and restart after approval | Cached metadata triggers reauthentication; metadata alone never unlocks |
+| AUTH-LIVE-04 | Force-stop and restart after approval | Approved cached session unlocks local app UI without another chooser; Drive remains separately unauthorized until checked |
 | AUTH-LIVE-05 | Sign out | Local session clears and chooser state is reset |
 | AUTH-LIVE-06 | Valid Google account omitted from local allowlist | Account is blocked; protected content absent; restart is signed out |
 | AUTH-LIVE-07 | Missing Web client or empty allowlist | Setup-required state; chooser never opens |
 | AUTH-LIVE-08 | Internal and public installs | Both package IDs coexist and launch |
-| AUTH-LIVE-09 | Background an approved session and return | Protected content relocks until current credential succeeds |
-| AUTH-LIVE-10 | Remove the approved account while app is backgrounded | Return signs out or blocks; cached metadata never unlocks |
+| AUTH-LIVE-09 | Background an approved session and return | Same approved session remains visible without another chooser |
+| AUTH-LIVE-10 | Remove the approved account while app is backgrounded | Next live Google/Drive boundary signs out, blocks, or requires repair; no cloud operation trusts the local session alone |
 | AUTH-LIVE-11 | Disable network or make Play services unavailable | Stable recoverable error or signed-out state; no crash or unlock |
 | AUTH-LIVE-12 | Rotate while Google provider UI is open | No duplicate chooser, stale callback unlock, or permanent `SigningIn` |
 
@@ -500,10 +514,10 @@ Use the internal flavor and a currently approved live account. The production
 Phase 3 path does not contact Drive; do not report Drive integration from these
 cases. Phase 4 separately requires the real shared Drive destination.
 
-The exact top-level Downloads folder is a mandatory first Phase 4 milestone.
-Do not attempt to represent it as a SAF success: implement a separate explicit
-all-files-access settings flow, keep traversal read only, test permission
-revocation on the Samsung, and leave ordinary folders on the SAF path.
+The exact top-level Downloads folder is implemented as a separate Phase 4
+source. Do not represent it as a SAF success: API 30+ uses explicit all-files-
+access settings, traversal remains read only, and ordinary folders stay on the
+SAF path.
 
 Before destructive grant tests, create a dedicated, clearly named folder on the
 phone containing disposable files. Existing personal folders may be selected
@@ -518,7 +532,7 @@ only `unchanged` or a redacted mismatch count, never real relative paths.
 | FOLDER-LIVE-02 | Select representative real folders such as Documents, Camera, Pictures, WhatsApp media, and an allowed Downloads subfolder | Each allowed tree maps independently; a platform-blocked root produces a clear explanation and no mapping |
 | FOLDER-LIVE-03 | Scan a mapped real folder | Aggregate progress advances and completes without opening Drive or changing source content |
 | FOLDER-LIVE-04 | Cancel a sufficiently long scan | Progress stops promptly, the mapping remains usable, no source content changes, and retry succeeds |
-| FOLDER-LIVE-05 | Force-stop and relaunch after mapping | Reauthentication is required; after approval the mapping and read grant remain usable |
+| FOLDER-LIVE-05 | Force-stop and relaunch after mapping | Approved local session, mapping, and read grant remain usable without another chooser |
 | FOLDER-LIVE-06 | Revoke one dedicated test-tree grant with the instrumentation-only test action | That mapping becomes `Needs repair`; healthy mappings still scan |
 | FOLDER-LIVE-07 | Repair the broken mapping by selecting the same tree | Access returns without the replacement grant being accidentally released |
 | FOLDER-LIVE-08 | Remove the dedicated test mapping | The unreferenced grant is released; every source file remains unchanged |
@@ -550,6 +564,64 @@ Real user interaction is required for system picker and account chooser steps.
 An instrumentation provider may force null cursors, cycles, loading cursors, and
 provider exceptions that cannot be triggered safely on personal data, but those
 tests are supporting evidence only and cannot satisfy any `FOLDER-LIVE-*` case.
+
+### 14A. Manual Exact Downloads Matrix
+
+Use a configured debug APK on Android user 0. Never clear app data or mutate the
+phone's Downloads content. API 30+ requires a real user decision in Android's
+special-access screen; API 24-29 uses the system tree picker.
+
+| ID | Case | Expected result |
+|---|---|---|
+| DOWNLOADS-LIVE-01 | Add Downloads and back out without granting | `Access required`; no Scan action; existing SAF mappings unchanged |
+| DOWNLOADS-LIVE-02 | Grant package-specific access and return | Exact primary Downloads becomes `Ready` |
+| DOWNLOADS-LIVE-03 | Scan real Downloads | Aggregate terminal result; no path or filename in evidence; source sentinel unchanged |
+| DOWNLOADS-LIVE-04 | Cancel a sufficiently long scan and retry | First run is cancelled, retry completes, source sentinel unchanged |
+| DOWNLOADS-LIVE-05 | Revoke access externally and reopen | `Access required` before any read; no Scan action |
+| DOWNLOADS-LIVE-06 | Repair, disable/enable, remove, and reconfigure | Each state is explicit; phone files and SAF mappings remain unchanged |
+| DOWNLOADS-LIVE-07 | Force-stop, reboot, and replace APK in place | Configuration and current grant classification survive; no chooser on ordinary relaunch |
+
+Record only aggregate counts or pass/fail state. Never record the device serial,
+account address, root path, or filename. On a second manufacturer's phone,
+repeat grant, denial, scan, revocation, and repair before release; do not assume
+Samsung behavior proves every OEM implementation.
+
+### 14B. Manual Google Drive Connection Matrix
+
+Use a privately configured debug APK installed in place on Android user 0. The
+approved local session and Drive grant are separate boundaries. Never capture
+or publish the Google surface, account address, token, folder ID, or raw Drive
+response.
+
+1. Force-stop and cold-start the app. Confirm the approved app surface opens
+   without Credential Manager.
+2. In `Google Drive backup`, select `Connect Google Drive` only when the state
+   requests authorization.
+3. Complete or cancel the real Google-owned resolution according to the case.
+4. Confirm only the plain-language Drive state below; do not infer upload
+   success because this phase performs no create or upload call.
+
+| ID | Case | Expected result |
+|---|---|---|
+| DRIVE-LIVE-01 | First explicit Connect and approve | Exact configured folder becomes `Ready` only when it is listable and writable |
+| DRIVE-LIVE-02 | Cancel/back from Google resolution | `NeedsAuthorization` plus neutral not-completed notice; no destination success |
+| DRIVE-LIVE-03 | Force-stop and cold-start after approval | Local app session and prior Drive grant are reused silently; destination is checked again |
+| DRIVE-LIVE-04 | Remove Editor while retaining Viewer | Viewer-only or inaccessible state; local folders and Downloads remain intact |
+| DRIVE-LIVE-05 | Restore Editor and refresh | Destination returns to `Ready` without rebuilding local source configuration |
+| DRIVE-LIVE-06 | Revoke the app's Drive grant | Silent check cannot report ready; explicit Connect repairs authorization |
+| DRIVE-LIVE-07 | Disable network, refresh, then restore network | Temporary failure, never ready; refresh recovers after connectivity returns |
+| DRIVE-LIVE-08 | Change approved app account during/after consent | Old callback is ignored; new account receives its own silent check |
+| DRIVE-LIVE-09 | Force-stop during Google resolution and reopen | Uncorrelated result is discarded; app silently rechecks and requests repair if needed |
+
+Redacted evidence current on 2026-07-18: `DRIVE-LIVE-01`,
+`DRIVE-LIVE-03`, and `DRIVE-LIVE-07` pass on the physical Samsung public build.
+For `DRIVE-LIVE-07`, both originally enabled network settings were restored and
+external reachability was rechecked before the recovery Refresh. The other rows
+remain unclaimed until executed against the real service boundary.
+
+After live acceptance, scan persistent app data and app-process logcat for
+common token markers. Report only zero/nonzero counts. Treat any match as a
+release blocker until reviewed privately.
 
 ## 15. Safe Test Evidence
 

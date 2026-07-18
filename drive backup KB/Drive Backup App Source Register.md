@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-source-register
 status: active
-last_updated: 2026-07-15
+last_updated: 2026-07-18
 context_role: sources
 read_when:
   - The agent makes platform claims about Android, Google Drive, Gmail, Apps Script, GitHub, or security.
@@ -17,9 +17,11 @@ This register lists source-backed platform claims. Future agents must verify cur
 
 | Topic | Source | Checked | Claim Used In Plan |
 |---|---|---:|---|
-| Storage Access Framework folder selection | https://developer.android.com/training/data-storage/shared/documents-files | 2026-07-15 | App can use a folder picker and persist access; Android 11+ blocks storage roots, the Downloads root, and sensitive Android folders. Moving or deleting the selected tree can invalidate access. |
+| Storage Access Framework folder selection | https://developer.android.com/training/data-storage/shared/documents-files | 2026-07-18 | App can use a folder picker and persist access; Android 11+ blocks storage roots, the Downloads root, and sensitive Android folders. Moving or deleting the selected tree can invalidate access. |
 | Android 11 storage restrictions | https://developer.android.com/about/versions/11/privacy/storage | 2026-07-15 | `ACTION_OPEN_DOCUMENT_TREE` cannot grant internal-storage roots, reliable volume roots, or the Downloads root; DocumentsUI shows the Downloads action disabled. |
-| All-files access | https://developer.android.com/training/data-storage/manage-all-files | 2026-07-15 | Backup/restore is a documented potential use case for `MANAGE_EXTERNAL_STORAGE`, but it grants broad shared-storage access, requires explicit system-settings consent, remains subject to Play policy, and does not relax SAF picker restrictions. |
+| All-files access | https://developer.android.com/training/data-storage/manage-all-files | 2026-07-18 | Backup/restore is a documented potential use case for `MANAGE_EXTERNAL_STORAGE`; the app must declare it, send the user to system settings, and check `Environment.isExternalStorageManager()`. The broad grant does not relax SAF restrictions or justify source mutation. |
+| Package-specific all-files settings | https://developer.android.com/reference/android/provider/Settings#ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION | 2026-07-18 | API 30+ can open the requesting app's all-files-access settings page; intent resolution can vary, so the app retains a global-settings fallback and refreshes actual permission state on return. |
+| All-files grant check | https://developer.android.com/reference/android/os/Environment#isExternalStorageManager() | 2026-07-18 | API 30+ must classify the current OS grant from `Environment.isExternalStorageManager()` immediately before protected access rather than trusting an Activity result. |
 | Google Play all-files policy | https://support.google.com/googleplay/android-developer/answer/10467955 | 2026-07-15 | Backup/restore apps can be eligible for all-files access when automatic multi-directory access is core functionality, but Play distribution requires declaration, review, prominent disclosure, and narrow disclosed use. |
 | OpenDocumentTree activity contract | https://developer.android.com/reference/androidx/activity/result/contract/ActivityResultContracts.OpenDocumentTree | 2026-07-13 | The Activity Result contract opens `ACTION_OPEN_DOCUMENT_TREE`; additional business state and request correlation must be retained separately. |
 | Activity Result process behavior | https://developer.android.com/training/basics/intents/result | 2026-07-13 | Register callbacks consistently and store business state separately so process recreation cannot attach a result to the wrong operation. |
@@ -56,15 +58,24 @@ This register lists source-backed platform claims. Future agents must verify cur
 | Google Identity Android release notes | https://developers.google.com/identity/android-credential-manager/releases | 2026-07-11 | Google ID library 1.2.0 distinguishes email from stable unique ID; tests must require both identity claims. |
 | Google Play services client authentication | https://developers.google.com/android/guides/client-auth | 2026-07-11 | Source builds on a different laptop normally have a different debug certificate SHA-1 and need matching Android OAuth client registration. |
 | Google ID token validation | https://developers.google.com/identity/gsi/web/guides/verify-google-id-token | 2026-07-10 | A relying-party server must validate token signature, audience, issuer, and expiry before treating an ID token as a server-side security identity. |
-| Google Android authorization client | https://developers.google.com/android/reference/com/google/android/gms/auth/api/identity/AuthorizationClient | 2026-07-10 | Request Google data scopes such as Drive separately from authentication and only when the feature needs them. |
+| Google Android authorization client | https://developers.google.com/android/reference/com/google/android/gms/auth/api/identity/AuthorizationClient | 2026-07-18 | Request Drive separately from authentication. Previously granted scopes can return tokens directly; otherwise the result carries a `PendingIntent`. Bind the request to the approved account and parse the returned intent through the client. |
+| Android authorization guide | https://developer.android.com/identity/authorization | 2026-07-18 | Authorization is separate from authentication; access tokens are short-lived, must be used securely, and can be reacquired after prior consent without storing refresh tokens on-device. |
+| Google authorization request account binding | https://developers.google.com/android/reference/com/google/android/gms/auth/api/identity/AuthorizationRequest.Builder | 2026-07-18 | `setAccount` binds authorization to one on-device account and `setRequestedScopes` declares the exact OAuth scopes. The app does not use select-account prompt mode for Drive. |
+| Google authorization result | https://developers.google.com/android/reference/com/google/android/gms/auth/api/identity/AuthorizationResult | 2026-07-18 | A result exposes granted scopes, a short-lived access token, an optional resolution, and account metadata. Validate scope, token, and account; never persist or log the token. |
+| Android IntentSender Activity Result | https://developer.android.com/reference/androidx/activity/result/contract/ActivityResultContracts.StartIntentSenderForResult | 2026-07-18 | A `SendIntentException` is returned as a synthesized canceled result carrying a specific action and extra; classify it separately from ordinary user cancellation. |
+| Google Play services Auth release | https://developers.google.com/android/guides/releases | 2026-07-18 | `com.google.android.gms:play-services-auth:21.6.0` is the current official release used for the authorization boundary. |
 
 ## Google Drive Sources
 
 | Topic | Source | Checked | Claim Used In Plan |
 |---|---|---:|---|
-| Drive OAuth scopes | https://developers.google.com/workspace/drive/api/guides/api-specific-auth | 2026-07-08 | Prefer narrow scopes such as `drive.file` when possible; broad Drive access needs stronger justification. |
+| Drive OAuth scopes | https://developers.google.com/workspace/drive/api/guides/api-specific-auth | 2026-07-18 | `drive.file` covers files created/opened by the app or shared with it through Picker. The existing fixed manually-created folder therefore uses restricted `drive` scope for the personal build; backup/sync qualifies, but public distribution can require verification. |
 | Drive uploads | https://developers.google.com/workspace/drive/api/guides/manage-uploads | 2026-07-08 | Drive supports media uploads and resumable uploads for file content. |
 | Drive folders | https://developers.google.com/workspace/drive/api/guides/folder | 2026-07-08 | Folders are Drive files with folder MIME type; files can be created in a folder using `parents`. |
+| Drive files.get | https://developers.google.com/workspace/drive/api/reference/rest/v3/files/get | 2026-07-18 | Probe only the configured file ID with an explicit fields mask and `supportsAllDrives=true`; classify HTTP errors without exposing response text. |
+| Drive partial responses | https://developers.google.com/workspace/drive/api/guides/fields-parameter | 2026-07-18 | Request a minimal explicit `fields` mask instead of accepting the default or complete resource representation. |
+| Drive error handling | https://developers.google.com/workspace/drive/api/guides/handle-errors | 2026-07-18 | Distinguish authorization, file-permission, quota, and retryable 403 reasons; 429 and 5xx remain retryable and provider text stays out of UI/logs. |
+| Drive file capabilities | https://developers.google.com/workspace/drive/api/reference/rest/v3/files | 2026-07-18 | Folder metadata exposes `trashed`, MIME type, `canListChildren`, and `canAddChildren`, which distinguish a usable upload destination from view-only or invalid state. |
 | Drive sharing permissions | https://developers.google.com/workspace/drive/api/guides/manage-sharing | 2026-07-08 | Drive files and folders have permissions with user/group/domain/anyone types and roles such as writer/reader. |
 | Google Picker | https://developers.google.com/workspace/drive/picker/guides/overview | 2026-07-08 | Picker can let users select Drive files/folders to authorize app access. |
 | Shared drives overview | https://developers.google.com/workspace/drive/api/guides/about-shareddrives | 2026-07-08 | Shared drives are organization-owned and differ from normal shared folders. This project is personal/free, so normal shared folder behavior must be tested. |

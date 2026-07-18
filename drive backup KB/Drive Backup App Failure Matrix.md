@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-failure-matrix
 status: active
-last_updated: 2026-07-13
+last_updated: 2026-07-18
 context_role: failure-behavior
 read_when:
   - The agent implements folder access, sync, Drive upload, email, retries, or tests.
@@ -19,7 +19,10 @@ Core invariant: one bad file must not stop the rest of the sync.
 | Local file changes during upload                   | Retry once after metadata refresh, then defer if still changing                   | None unless repeated                       | Fake integration                 |
 | Local file deleted before upload                   | Mark missing locally, skip upload                                                 | None                                       | Unit                             |
 | Folder picker cancelled                            | Clear matching request; do not persist mapping or grant                            | None                                       | Contract and live Samsung        |
-| User tries to select internal-storage or Downloads root | Explain Android's system restriction; allow an eligible subfolder; never fake success | Choose subfolder or approve a future dedicated broad-access source | Live Samsung and official contract |
+| User tries to select a storage root through SAF | Explain Android's system restriction; allow an eligible subfolder; never fake success | Choose an eligible subfolder | Live Samsung and official contract |
+| User needs exact top-level Downloads on API 30+ | Route to the dedicated all-files-access source; never represent the blocked SAF picker as success | Explicitly approve Android special access | Live Samsung and official contract |
+| Downloads grant denied or revoked | Keep configuration when applicable, show `Access required`, admit no scan/read, and leave SAF mappings unaffected | Grant or repair access, or remove Downloads | Unit, Compose, and live Samsung |
+| User requests `Android/data`, `Android/obb`, or another OS-protected app sandbox | Report unsupported/unavailable; never parse paths or claim bypass access | Choose an Android-permitted source | Official contract and device compatibility matrix |
 | Stale or mismatched picker callback                | Ignore before taking a persistent grant                                            | User starts a current request              | Contract and recreation          |
 | Duplicate picker launch                            | Keep the singleton request; do not open another picker                             | None                                       | Room/contract                    |
 | Picker returns invalid or non-tree URI             | Reject selection; do not persist a grant                                           | User selects again                         | Contract/provider                |

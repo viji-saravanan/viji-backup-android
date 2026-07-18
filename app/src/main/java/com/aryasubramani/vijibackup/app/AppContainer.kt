@@ -12,6 +12,17 @@ import com.aryasubramani.vijibackup.auth.domain.AccountAccessPolicy
 import com.aryasubramani.vijibackup.auth.google.CredentialManagerCredentialStateClearer
 import com.aryasubramani.vijibackup.auth.google.CredentialManagerGoogleSignInClient
 import com.aryasubramani.vijibackup.auth.google.GoogleSignInClient
+import com.aryasubramani.vijibackup.downloadsaccess.data.DataStoreDownloadsSourceStore
+import com.aryasubramani.vijibackup.downloadsaccess.data.downloadsSourceDataStore
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessManager
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanner
+import com.aryasubramani.vijibackup.downloadsaccess.platform.AndroidDownloadsAccessProbe
+import com.aryasubramani.vijibackup.downloadsaccess.platform.createAndroidDownloadsScanner
+import com.aryasubramani.vijibackup.drive.config.DriveBuildConfiguration
+import com.aryasubramani.vijibackup.drive.google.DriveConnectionCoordinator
+import com.aryasubramani.vijibackup.drive.google.GoogleDriveAuthorizationProvider
+import com.aryasubramani.vijibackup.drive.network.HttpDriveDestinationHealthProbe
+import com.aryasubramani.vijibackup.drive.network.UrlConnectionDriveDestinationHttpClient
 import com.aryasubramani.vijibackup.folderaccess.data.RoomFolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.data.DataStoreSignOutCleanupIntentStore
 import com.aryasubramani.vijibackup.folderaccess.data.signOutCleanupIntentDataStore
@@ -23,10 +34,13 @@ import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderG
 import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderMetadataReader
 import com.aryasubramani.vijibackup.folderaccess.saf.IterativeLocalFolderScanner
 
-interface AppContainer {
+internal interface AppContainer {
     val authSessionManager: AuthSessionManager
     val googleSignInClient: GoogleSignInClient
     val folderMappingRepository: FolderMappingRepository
+    val downloadsAccessManager: DownloadsAccessManager
+    val downloadsScanner: DownloadsScanner
+    val driveConnectionCoordinator: DriveConnectionCoordinator
     val isGoogleSignInConfigured: Boolean
 }
 
@@ -34,6 +48,7 @@ internal class DefaultAppContainer(context: Context) : AppContainer {
     private val applicationContext = context.applicationContext
     private val credentialManager = CredentialManager.create(applicationContext)
     private val googleSignInConfiguration = GoogleSignInBuildConfiguration.value
+    private val downloadsAccessProbe = AndroidDownloadsAccessProbe()
     private val folderAccessDatabase by lazy {
         Room.databaseBuilder(
             applicationContext,
@@ -84,6 +99,23 @@ internal class DefaultAppContainer(context: Context) : AppContainer {
                 documentSource = ContentResolverLocalFolderDocumentSource(
                     contentResolver = applicationContext.contentResolver,
                 ),
+            ),
+        )
+    }
+
+    override val downloadsAccessManager = DownloadsAccessManager(
+        store = DataStoreDownloadsSourceStore(applicationContext.downloadsSourceDataStore),
+        accessProbe = downloadsAccessProbe,
+    )
+
+    override val downloadsScanner = createAndroidDownloadsScanner(downloadsAccessProbe)
+
+    override val driveConnectionCoordinator by lazy {
+        DriveConnectionCoordinator(
+            authorizationProvider = GoogleDriveAuthorizationProvider(applicationContext),
+            destinationProbe = HttpDriveDestinationHealthProbe(
+                configuration = DriveBuildConfiguration.value,
+                httpClient = UrlConnectionDriveDestinationHttpClient(),
             ),
         )
     }

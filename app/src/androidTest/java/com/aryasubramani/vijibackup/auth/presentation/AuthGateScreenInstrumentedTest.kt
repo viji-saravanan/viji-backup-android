@@ -27,6 +27,11 @@ import com.aryasubramani.vijibackup.app.VijiBackupApp
 import com.aryasubramani.vijibackup.app.VijiBackupTestTags
 import com.aryasubramani.vijibackup.auth.domain.GoogleAccount
 import com.aryasubramani.vijibackup.auth.google.GoogleSignInMode
+import com.aryasubramani.vijibackup.downloadsaccess.data.DownloadsSourceConfiguration
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessHealth
+import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessSnapshot
+import com.aryasubramani.vijibackup.downloadsaccess.presentation.DownloadsAccessTestTags
+import com.aryasubramani.vijibackup.downloadsaccess.presentation.DownloadsAccessUiState
 import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessTestTags
 import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessUiState
 import org.junit.Assert.assertTrue
@@ -66,16 +71,27 @@ class AuthGateScreenInstrumentedTest {
     @Test
     fun approvedAccountIsTheOnlyStateThatRendersProtectedContent() {
         var signOutRequested = false
+        var changeAccountRequested = false
         var addFolderRequested = false
+        var downloadsAccessRequested = false
         composeRule.setContent {
             VijiBackupApp(
                 uiState = AuthUiState.Approved(approvedAccount()),
                 folderAccessUiState = FolderAccessUiState(isLoading = false),
+                downloadsAccessUiState = DownloadsAccessUiState(
+                    snapshot = DownloadsAccessSnapshot(
+                        configuration = DownloadsSourceConfiguration(),
+                        health = DownloadsAccessHealth.NotConfigured,
+                    ),
+                    isLoading = false,
+                ),
                 onSignIn = {},
                 onRetry = {},
                 onSignOut = { signOutRequested = true },
+                onChangeAccount = { changeAccountRequested = true },
                 onAddFolder = { addFolderRequested = true },
                 onRepairFolder = {},
+                onRequestDownloadsAccess = { downloadsAccessRequested = true },
             )
         }
         composeRule.waitForIdle()
@@ -84,6 +100,10 @@ class AuthGateScreenInstrumentedTest {
         composeRule.onNodeWithText(appString(R.string.auth_approved_title)).assertIsDisplayed()
         composeRule.onAllNodesWithTag(AuthTestTags.SignInButton).assertCountEquals(0)
         composeRule.onNodeWithTag(FolderAccessTestTags.Screen).assertIsDisplayed()
+        composeRule.onNodeWithTag(DownloadsAccessTestTags.Screen).assertIsDisplayed()
+        composeRule.onNodeWithTag(DownloadsAccessTestTags.PrimaryAction)
+            .assertIsDisplayed()
+            .performClick()
         composeRule.onNodeWithTag(FolderAccessTestTags.AddButton)
             .assertIsDisplayed()
             .performClick()
@@ -92,9 +112,16 @@ class AuthGateScreenInstrumentedTest {
             .assertHasClickAction()
             .assertTextEquals(appString(R.string.auth_sign_out_action))
             .performClick()
+        composeRule.onNodeWithTag(AuthTestTags.ChangeAccountButton)
+            .assertIsDisplayed()
+            .assertHasClickAction()
+            .assertTextEquals(appString(R.string.auth_change_account_action))
+            .performClick()
 
         assertTrue(signOutRequested)
+        assertTrue(changeAccountRequested)
         assertTrue(addFolderRequested)
+        assertTrue(downloadsAccessRequested)
     }
 
     @Test
@@ -136,6 +163,8 @@ class AuthGateScreenInstrumentedTest {
             composeRule.onAllNodesWithTag(VijiBackupTestTags.ProtectedContent)
                 .assertCountEquals(0)
             composeRule.onAllNodesWithTag(FolderAccessTestTags.Screen)
+                .assertCountEquals(0)
+            composeRule.onAllNodesWithTag(DownloadsAccessTestTags.Screen)
                 .assertCountEquals(0)
         }
     }

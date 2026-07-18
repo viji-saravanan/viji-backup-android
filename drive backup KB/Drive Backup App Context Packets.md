@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-context-packets
 status: active
-last_updated: 2026-07-13
+last_updated: 2026-07-18
 context_role: machine-friendly-context-manifest
 read_when:
   - A future AI agent needs exact note sets for a feature area.
@@ -217,6 +217,8 @@ Required notes:
 
 - [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]]
 - [[Drive Backup App Phase 3 Completion Execution Plan]]
+- [[Drive Backup App Phase 4 Downloads Access Implementation Plan]] when the
+  source is exact top-level Downloads or broad-storage special access.
 - [[Drive Backup App Architecture]]
 - [[Drive Backup App Product Requirements]]
 - [[Drive Backup App Failure Matrix]]
@@ -226,12 +228,18 @@ Required notes:
 Must verify:
 
 - Android Storage Access Framework docs.
+- Android all-files-access, package-specific Settings action, and
+  `Environment.isExternalStorageManager()` docs for exact Downloads.
 - Current Room, KSP, Activity Result, and DocumentsContract behavior named in the Phase 3 plan.
 
 Exit checks:
 
-- User can only choose folders Android permits.
-- Only a read grant is persisted; no broad storage permission is requested.
+- Ordinary mappings only use folders Android permits through SAF and persist
+  only a read grant.
+- Exact primary Downloads is a distinct singleton source: API 30+ requires
+  explicit all-files-access consent, while API 24-29 uses SAF fallback.
+- Broad permission never implies a production write/delete API or access to
+  every OS-protected app sandbox.
 - A selected tree scans after a real force-stop and relaunch without reopening the picker.
 - Revoked folder permission pauses that folder only.
 - App does not claim access to blocked folders.
@@ -249,6 +257,7 @@ Trigger phrases:
 
 Required notes:
 
+- [[Drive Backup App Phase 4 Drive Authorization And Destination Plan]]
 - [[Drive Backup App Architecture]]
 - [[Drive Backup App Security Privacy And Access]]
 - [[Drive Backup App Open Questions And Assumptions]]
@@ -258,12 +267,14 @@ Required notes:
 Must verify:
 
 - Drive scopes.
+- Google Identity `AuthorizationClient` account-binding and resolution behavior.
 - Drive Picker or folder selection behavior.
 - Shared folder ownership/quota behavior.
 
 Exit checks:
 
 - User signs in with their own account.
+- Drive authorization is a separate current-token boundary from local sign-in.
 - Shared folder access is proven before upload.
 - Per-user/per-device folder is created.
 - Ownership/quota spike is recorded.

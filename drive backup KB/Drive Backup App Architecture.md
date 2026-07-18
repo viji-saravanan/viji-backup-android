@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-architecture
 status: draft
-last_updated: 2026-07-13
+last_updated: 2026-07-18
 context_role: architecture
 read_when:
   - The agent needs implementation boundaries, components, or platform constraints.
@@ -87,8 +87,8 @@ Do not promise exact periodic timing. WorkManager periodic execution is approxim
 
 Durable local state should hold:
 
-- approved account metadata needed to request reauthentication, never a durable
-  assertion that the current session is authorized;
+- approved account metadata for the local app session, re-evaluated against the
+  current allowlist on every cold load and never treated as Drive authorization;
 - selected local folder mappings;
 - Drive destination folder IDs;
 - file ledger entries;
@@ -101,14 +101,33 @@ The exact schema belongs in implementation planning, but the data must support i
 
 Phase 2 uses a small application-scoped manual container and Preferences
 DataStore for account subject, normalized email, and optional display name.
-Cached metadata always enters `ReauthenticationRequired`; future workers must
-independently prove current Google/Drive authorization and cannot trust this metadata.
+Phase 4 promotes an allowlist-approved cached record to the durable local app
+session so ordinary cold launches do not invoke Credential Manager. This only
+unlocks local app UI. The implemented Drive connection boundary separately
+binds `AuthorizationClient` to that approved account, keeps each access token in
+one in-memory call chain, and probes only the configured destination. Future
+upload workers must repeat this authorization and destination-health contract;
+they may never infer cloud access from the cached local session.
 
 Phase 3 adds Room database `viji_backup.db` for installation-scoped local folder
 mappings and one durable picker-operation slot. Approved identities configured
 for that installation are co-administrators of those mappings. Before unrelated
 people share one Android user profile, the data model must add explicit profile
 ownership. DataStore remains reserved for small scalar settings.
+
+Phase 4 adds a separate Preferences DataStore-backed singleton for exact primary
+Downloads configuration. API 30+ health comes from the current all-files-access
+grant and mounted/readable root state; API 24-29 falls back to a SAF tree. The
+production source boundary exposes traversal metadata and reads only, with no
+create, write, rename, move, or delete capability.
+
+Phase 4 also adds a process-stable Drive coordinator composed from Google Play
+services authorization and a bounded Drive REST `files.get` probe. It requests
+the restricted full-Drive scope for the fixed pre-existing shared folder, but
+runtime access is constrained to that exact configured ID and a minimal fields
+mask. Consent callbacks are request/account correlated, retired on sign-out or
+account change, and never persisted. Upload and destination creation are still
+absent.
 
 ## Email Model
 

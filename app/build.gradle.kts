@@ -51,6 +51,10 @@ val driveUploadFolderId = privateConfigurationValue(
     gradleKey = "vijiBackup.driveUploadFolderId",
     environmentKey = "VIJI_BACKUP_DRIVE_UPLOAD_FOLDER_ID",
 )
+val driveFileIdPattern = Regex("[A-Za-z0-9_-]+")
+require(driveUploadFolderId.isEmpty() || driveUploadFolderId.matches(driveFileIdPattern)) {
+    "vijiBackup.driveUploadFolderId must be an opaque Google Drive file ID"
+}
 val allowedGoogleAccounts = privateConfigurationValue(
     gradleKey = "vijiBackup.allowedGoogleAccounts",
     environmentKey = "VIJI_BACKUP_ALLOWED_GOOGLE_ACCOUNTS",
@@ -210,13 +214,14 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.room.runtime)
     implementation(libs.google.identity.googleid)
+    implementation(libs.google.play.services.auth)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
 
     ksp(libs.androidx.room.compiler)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-    debugImplementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
