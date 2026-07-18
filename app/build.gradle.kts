@@ -51,6 +51,10 @@ val driveUploadFolderId = privateConfigurationValue(
     gradleKey = "vijiBackup.driveUploadFolderId",
     environmentKey = "VIJI_BACKUP_DRIVE_UPLOAD_FOLDER_ID",
 )
+val driveFileIdPattern = Regex("[A-Za-z0-9_-]+")
+require(driveUploadFolderId.isEmpty() || driveUploadFolderId.matches(driveFileIdPattern)) {
+    "vijiBackup.driveUploadFolderId must be an opaque Google Drive file ID"
+}
 val allowedGoogleAccounts = privateConfigurationValue(
     gradleKey = "vijiBackup.allowedGoogleAccounts",
     environmentKey = "VIJI_BACKUP_ALLOWED_GOOGLE_ACCOUNTS",
