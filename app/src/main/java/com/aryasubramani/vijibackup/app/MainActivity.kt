@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -22,12 +23,20 @@ import com.aryasubramani.vijibackup.auth.presentation.AuthUiState
 import com.aryasubramani.vijibackup.auth.presentation.AuthViewModel
 import com.aryasubramani.vijibackup.downloadsaccess.platform.AndroidDownloadsAccessSettingsIntentFactory
 import com.aryasubramani.vijibackup.downloadsaccess.presentation.DownloadsAccessViewModel
+import com.aryasubramani.vijibackup.drive.domain.DriveConnectionResult
+import com.aryasubramani.vijibackup.drive.google.DriveConnectionStep
+import com.aryasubramani.vijibackup.drive.presentation.DriveConnectionRequest
+import com.aryasubramani.vijibackup.drive.presentation.DriveConnectionRequestMode
+import com.aryasubramani.vijibackup.drive.presentation.DriveConnectionViewModel
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerLaunch
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
 import com.aryasubramani.vijibackup.folderaccess.presentation.FolderAccessViewModel
 import com.aryasubramani.vijibackup.folderaccess.saf.FolderPickerResult
 import com.aryasubramani.vijibackup.folderaccess.saf.ReadOnlyFolderPickerRequest
 import com.aryasubramani.vijibackup.folderaccess.saf.ReadOnlyOpenDocumentTreeContract
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -40,6 +49,7 @@ class MainActivity : ComponentActivity() {
     private val folderPickerActivityResultRegistry =
         folderPickerActivityResultRegistryFactoryForTesting?.invoke() ?: activityResultRegistry
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var driveAuthorizationCompletionJob: Job? = null
 
     @VisibleForTesting
     internal var protectedWindowPolicyAppliedForTesting = false
@@ -64,6 +74,7 @@ class MainActivity : ComponentActivity() {
             scanner = appContainer.downloadsScanner,
         )
     }
+    private val driveConnectionViewModel by viewModels<DriveConnectionViewModel>()
     private val downloadsSettingsIntentFactory by lazy(LazyThreadSafetyMode.NONE) {
         AndroidDownloadsAccessSettingsIntentFactory(this)
     }
@@ -71,6 +82,14 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult(),
     ) {
         downloadsAccessViewModel.onSettingsResult()
+    }
+    private val driveAuthorizationLauncher = registerForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { result ->
+        handleDriveAuthorizationActivityResult(
+            resultCode = result.resultCode,
+            data = result.data,
+        )
     }
     private val credentialRequestDispatcher by lazy(LazyThreadSafetyMode.NONE) {
         AuthCredentialRequestDispatcher(
@@ -102,18 +121,31 @@ class MainActivity : ComponentActivity() {
             val folderAccessUiState by folderAccessViewModel.uiState.collectAsStateWithLifecycle()
             val downloadsAccessUiState by
                 downloadsAccessViewModel.uiState.collectAsStateWithLifecycle()
+            val driveConnectionUiState by
+                driveConnectionViewModel.uiState.collectAsStateWithLifecycle()
             val signInRequest = (uiState as? AuthUiState.SigningIn)?.request
+            val approvedAccount = (uiState as? AuthUiState.Approved)?.account
 
             LaunchedEffect(uiState) {
                 if (uiState is AuthUiState.ReauthenticationRequired) {
                     authViewModel.startAutomaticReauthentication()
                 }
-                if (uiState is AuthUiState.Approved) {
+                if (approvedAccount != null) {
                     folderAccessViewModel.activate()
                     downloadsAccessViewModel.activate()
+                    driveConnectionViewModel.activate(approvedAccount)
                 } else {
                     folderAccessViewModel.deactivate()
                     downloadsAccessViewModel.deactivate()
+                    driveConnectionViewModel.deactivate()
+                }
+            }
+            LaunchedEffect(approvedAccount) {
+                val account = approvedAccount ?: return@LaunchedEffect
+                driveConnectionViewModel.requests.collectLatest { request ->
+                    if (request.account == account) {
+                        executeDriveConnectionRequest(request)
+                    }
                 }
             }
             LaunchedEffect(signInRequest?.id) {
@@ -152,10 +184,11 @@ class MainActivity : ComponentActivity() {
                 uiState = uiState,
                 folderAccessUiState = folderAccessUiState,
                 downloadsAccessUiState = downloadsAccessUiState,
+                driveConnectionUiState = driveConnectionUiState,
                 onSignIn = authViewModel::signIn,
                 onRetry = authViewModel::retry,
                 onSignOut = ::signOut,
-                onChangeAccount = authViewModel::changeAccount,
+                onChangeAccount = ::changeAccount,
                 onAddFolder = folderAccessViewModel::addFolder,
                 onRepairFolder = folderAccessViewModel::repairFolder,
                 onRemoveFolder = folderAccessViewModel::removeFolder,
@@ -169,6 +202,8 @@ class MainActivity : ComponentActivity() {
                 onRefreshDownloads = downloadsAccessViewModel::refresh,
                 onScanDownloads = downloadsAccessViewModel::scan,
                 onCancelDownloadsScan = downloadsAccessViewModel::cancelScan,
+                onConnectDrive = driveConnectionViewModel::connect,
+                onRefreshDrive = driveConnectionViewModel::refresh,
             )
         }
     }
@@ -263,7 +298,86 @@ class MainActivity : ComponentActivity() {
 
     private fun signOut() {
         folderPickerRequestState.retireCurrent()
+        retireDriveConnection()
         authViewModel.signOut()
+    }
+
+    private fun changeAccount() {
+        folderPickerRequestState.retireCurrent()
+        retireDriveConnection()
+        authViewModel.changeAccount()
+    }
+
+    private fun retireDriveConnection() {
+        driveAuthorizationCompletionJob?.cancel()
+        driveAuthorizationCompletionJob = null
+        driveConnectionViewModel.deactivate()
+    }
+
+    private suspend fun executeDriveConnectionRequest(request: DriveConnectionRequest) {
+        val step = try {
+            appContainer.driveConnectionCoordinator.begin(request.account)
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            DriveConnectionStep.Complete(DriveConnectionResult.InvalidResponse)
+        }
+        when (step) {
+            is DriveConnectionStep.Complete ->
+                driveConnectionViewModel.onResult(request.id, step.result)
+            is DriveConnectionStep.ResolutionRequired -> {
+                if (request.mode == DriveConnectionRequestMode.SilentProbe) {
+                    driveConnectionViewModel.onResult(
+                        request.id,
+                        DriveConnectionResult.NeedsAuthorization,
+                    )
+                    return
+                }
+                if (!driveConnectionViewModel.onAuthorizationResolutionLaunched(request.id)) {
+                    return
+                }
+                try {
+                    driveAuthorizationLauncher.launch(
+                        IntentSenderRequest.Builder(step.pendingIntent.intentSender).build(),
+                    )
+                } catch (_: Exception) {
+                    driveConnectionViewModel.onAuthorizationLaunchFailed(request.id)
+                }
+            }
+        }
+    }
+
+    private fun handleDriveAuthorizationActivityResult(resultCode: Int, data: android.content.Intent?) {
+        val pendingRequest = driveConnectionViewModel.pendingAuthorizationRequest() ?: return
+        when (val outcome = classifyDriveAuthorizationActivityResult(resultCode, data)) {
+            DriveAuthorizationActivityOutcome.Cancelled ->
+                driveConnectionViewModel.onAuthorizationCancelled(pendingRequest.id)
+            DriveAuthorizationActivityOutcome.LaunchFailed ->
+                driveConnectionViewModel.onAuthorizationLaunchFailed(pendingRequest.id)
+            DriveAuthorizationActivityOutcome.Invalid ->
+                driveConnectionViewModel.onResult(
+                    pendingRequest.id,
+                    DriveConnectionResult.InvalidResponse,
+                )
+            is DriveAuthorizationActivityOutcome.Complete -> {
+                val request = driveConnectionViewModel.claimAuthorizationResult(pendingRequest.id)
+                    ?: return
+                driveAuthorizationCompletionJob?.cancel()
+                driveAuthorizationCompletionJob = lifecycleScope.launch {
+                    val result = try {
+                        appContainer.driveConnectionCoordinator.complete(
+                            expectedAccount = request.account,
+                            data = outcome.data,
+                        )
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (_: Exception) {
+                        DriveConnectionResult.InvalidResponse
+                    }
+                    driveConnectionViewModel.onResult(request.id, result)
+                }
+            }
+        }
     }
 
     @VisibleForTesting
