@@ -18,6 +18,11 @@ import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsAccessManage
 import com.aryasubramani.vijibackup.downloadsaccess.domain.DownloadsScanner
 import com.aryasubramani.vijibackup.downloadsaccess.platform.AndroidDownloadsAccessProbe
 import com.aryasubramani.vijibackup.downloadsaccess.platform.createAndroidDownloadsScanner
+import com.aryasubramani.vijibackup.drive.config.DriveBuildConfiguration
+import com.aryasubramani.vijibackup.drive.google.DriveConnectionCoordinator
+import com.aryasubramani.vijibackup.drive.google.GoogleDriveAuthorizationProvider
+import com.aryasubramani.vijibackup.drive.network.HttpDriveDestinationHealthProbe
+import com.aryasubramani.vijibackup.drive.network.UrlConnectionDriveDestinationHttpClient
 import com.aryasubramani.vijibackup.folderaccess.data.RoomFolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.data.DataStoreSignOutCleanupIntentStore
 import com.aryasubramani.vijibackup.folderaccess.data.signOutCleanupIntentDataStore
@@ -29,12 +34,13 @@ import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderG
 import com.aryasubramani.vijibackup.folderaccess.saf.ContentResolverLocalFolderMetadataReader
 import com.aryasubramani.vijibackup.folderaccess.saf.IterativeLocalFolderScanner
 
-interface AppContainer {
+internal interface AppContainer {
     val authSessionManager: AuthSessionManager
     val googleSignInClient: GoogleSignInClient
     val folderMappingRepository: FolderMappingRepository
     val downloadsAccessManager: DownloadsAccessManager
     val downloadsScanner: DownloadsScanner
+    val driveConnectionCoordinator: DriveConnectionCoordinator
     val isGoogleSignInConfigured: Boolean
 }
 
@@ -103,4 +109,14 @@ internal class DefaultAppContainer(context: Context) : AppContainer {
     )
 
     override val downloadsScanner = createAndroidDownloadsScanner(downloadsAccessProbe)
+
+    override val driveConnectionCoordinator by lazy {
+        DriveConnectionCoordinator(
+            authorizationProvider = GoogleDriveAuthorizationProvider(applicationContext),
+            destinationProbe = HttpDriveDestinationHealthProbe(
+                configuration = DriveBuildConfiguration.value,
+                httpClient = UrlConnectionDriveDestinationHttpClient(),
+            ),
+        )
+    }
 }
