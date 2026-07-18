@@ -9,13 +9,20 @@ import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationE
 import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationState
 import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationType
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
+import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderScanResult
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderAccessHealth
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMapping
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderMappingRepository
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerLaunch
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
+import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderAccessValidator
 import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderMetadataReader
+import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderScanner
+import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
+import com.aryasubramani.vijibackup.folderaccess.domain.SetFolderEnabledResult
+import com.aryasubramani.vijibackup.folderaccess.domain.ValidateFolderAccessResult
 import com.aryasubramani.vijibackup.folderaccess.saf.AcquireReadGrantResult
 import com.aryasubramani.vijibackup.folderaccess.saf.GrantReleaseResult
 import com.aryasubramani.vijibackup.folderaccess.saf.LocalFolderGrantManager
@@ -36,8 +43,11 @@ import kotlinx.coroutines.withContext
 
 class RoomFolderMappingRepository(
     private val dao: FolderAccessDao,
+    private val signOutCleanupIntentStore: SignOutCleanupIntentStore,
     private val grantManager: LocalFolderGrantManager,
     private val metadataReader: LocalFolderMetadataReader,
+    private val accessValidator: LocalFolderAccessValidator,
+    private val scanner: LocalFolderScanner,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val requestTokenFactory: () -> String = { UUID.randomUUID().toString() },
     private val mappingIdFactory: () -> String = { UUID.randomUUID().toString() },
@@ -127,6 +137,75 @@ class RoomFolderMappingRepository(
         }
     }
 
+    override suspend fun validate(mappingId: String): ValidateFolderAccessResult = storageResult(
+        failure = ValidateFolderAccessResult.StorageFailure,
+    ) {
+        withContext(ioDispatcher) {
+            ensureInitialized()
+            val mapping = dao.mappingById(mappingId)
+                ?: return@withContext ValidateFolderAccessResult.MappingNotFound
+            when (val health = accessValidator.validate(mapping.treeUri)) {
+                FolderAccessHealth.Checking -> ValidateFolderAccessResult.StorageFailure
+                else -> ValidateFolderAccessResult.Found(health)
+            }
+        }
+    }
+
+    override suspend fun beginScan(mappingId: String): BeginFolderScanResult = storageResult(
+        failure = BeginFolderScanResult.StorageFailure,
+    ) {
+        withContext(ioDispatcher) {
+            ensureInitialized()
+            val mapping = dao.mappingById(mappingId)
+                ?: return@withContext BeginFolderScanResult.MappingNotFound
+            when (val health = accessValidator.validate(mapping.treeUri)) {
+                FolderAccessHealth.Ready -> BeginFolderScanResult.Ready(
+                    scanner.scan(mapping.treeUri),
+                )
+                FolderAccessHealth.Checking -> BeginFolderScanResult.StorageFailure
+                else -> BeginFolderScanResult.AccessUnavailable(health)
+            }
+        }
+    }
+
+    override suspend fun setEnabled(
+        mappingId: String,
+        enabled: Boolean,
+    ): SetFolderEnabledResult = storageResult(
+        failure = SetFolderEnabledResult.StorageFailure,
+    ) {
+        serialized {
+            val mapping = dao.mappingById(mappingId)
+                ?: return@serialized SetFolderEnabledResult.MappingNotFound
+            if (mapping.enabled == enabled) {
+                return@serialized SetFolderEnabledResult.Updated
+            }
+            if (dao.updateMappingEnabled(mappingId, enabled) == 1) {
+                SetFolderEnabledResult.Updated
+            } else {
+                SetFolderEnabledResult.MappingNotFound
+            }
+        }
+    }
+
+    override suspend fun prepareForSignOut(): PendingFolderCleanupResult = withContext(ioDispatcher) {
+        operationMutex.withLock {
+            try {
+                preparePendingCleanupForSignOut().also { result ->
+                    if (result == PendingFolderCleanupResult.RetryRequired) {
+                        initialized.set(false)
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                initialized.set(false)
+                throw cancelled
+            } catch (_: Exception) {
+                initialized.set(false)
+                PendingFolderCleanupResult.RetryRequired
+            }
+        }
+    }
+
     private suspend fun beginOperation(
         operation: PendingFolderOperationType,
         targetMappingId: String?,
@@ -151,6 +230,43 @@ class RoomFolderMappingRepository(
         } else {
             BeginFolderPickerResult.Busy
         }
+    }
+
+    private suspend fun preparePendingCleanupForSignOut(): PendingFolderCleanupResult {
+        val pending = dao.pendingOperation() ?: return PendingFolderCleanupResult.Complete
+        val intentPersisted = try {
+            signOutCleanupIntentStore.writeRequestToken(pending.requestToken)
+            true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+        if (pending.state != PendingFolderOperationState.Abandoning &&
+            dao.markPendingAbandoning(pending.requestToken) != 1
+        ) {
+            return PendingFolderCleanupResult.RetryRequired
+        }
+
+        val selectedTreeUri = pending.selectedTreeUri
+        if (selectedTreeUri != null &&
+            dao.mappingByTreeUri(selectedTreeUri) == null &&
+            grantManager.persistedGrants().any { it.treeUri == selectedTreeUri }
+        ) {
+            if (grantManager.releaseGrant(selectedTreeUri) != GrantReleaseResult.Released) {
+                return PendingFolderCleanupResult.RetryRequired
+            }
+        }
+
+        if (dao.deleteAbandoningOperation(pending.requestToken) != 1) {
+            return PendingFolderCleanupResult.RetryRequired
+        }
+        if (intentPersisted &&
+            !signOutCleanupIntentStore.clearRequestToken(pending.requestToken)
+        ) {
+            return PendingFolderCleanupResult.RetryRequired
+        }
+        return PendingFolderCleanupResult.Complete
     }
 
     private suspend fun completeSelection(
@@ -345,11 +461,26 @@ class RoomFolderMappingRepository(
     }
 
     private suspend fun reconcileLocked() {
-        val pending = dao.pendingOperation()
+        val signOutRequestToken = signOutCleanupIntentStore.readRequestToken()
+        var pending = dao.pendingOperation()
         dao.allMappings()
         val persistedGrants = normalizePersistedGrants(grantManager.persistedGrants())
         val grantsByUri = persistedGrants.associateBy(PersistedFolderGrant::treeUri)
         val releasedUris = mutableSetOf<String>()
+
+        if (signOutRequestToken != null) {
+            if (pending?.requestToken == signOutRequestToken) {
+                cleanupPending(
+                    pending = pending,
+                    grantsByUri = grantsByUri,
+                    releasedUris = releasedUris,
+                )
+                pending = null
+            }
+            check(signOutCleanupIntentStore.clearRequestToken(signOutRequestToken)) {
+                "Sign-out cleanup intent changed during reconciliation"
+            }
+        }
 
         if (pending != null) {
             when {

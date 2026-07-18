@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-fresh-laptop-setup-test-runbook
 status: active
-last_updated: 2026-07-13
+last_updated: 2026-07-16
 context_role: setup-and-repeatable-testing
 read_when:
   - A contributor or reviewer is starting on a different laptop.
@@ -500,6 +500,11 @@ Use the internal flavor and a currently approved live account. The production
 Phase 3 path does not contact Drive; do not report Drive integration from these
 cases. Phase 4 separately requires the real shared Drive destination.
 
+The exact top-level Downloads folder is a mandatory first Phase 4 milestone.
+Do not attempt to represent it as a SAF success: implement a separate explicit
+all-files-access settings flow, keep traversal read only, test permission
+revocation on the Samsung, and leave ordinary folders on the SAF path.
+
 Before destructive grant tests, create a dedicated, clearly named folder on the
 phone containing disposable files. Existing personal folders may be selected
 and scanned, but automation must never rename, edit, move, or delete their
@@ -521,6 +526,25 @@ only `unchanged` or a redacted mismatch count, never real relative paths.
 | FOLDER-LIVE-10 | Cancel the picker, rotate during picker return, and rapidly attempt a second add | No mapping or orphan grant is created from cancellation and only one current request can complete |
 | FOLDER-LIVE-11 | Open recent apps while folder labels are visible | The app task preview does not expose protected content |
 | FOLDER-LIVE-12 | Run add, scan, cancel, repair, and remove while mutation sentinels are active | All sentinels report unchanged and reviewed app logs contain no labels, URIs, IDs, or filenames |
+
+`FOLDER-LIVE-06` is an explicit destructive test action. First hash the exact
+dedicated mapping display name locally with SHA-256, install the matching
+internal Android-test APK without clearing app data, and substitute only the
+64-character lowercase digest below. The test refuses to run without the
+opt-in flag and requires exactly one digest match. It persists or prints no URI,
+mapping ID, or display name.
+
+```bash
+adb shell am instrument --user 0 -w -r \
+  -e class com.aryasubramani.vijibackup.folderaccess.LiveFolderGrantControlInstrumentedTest \
+  -e live_grant_control_enabled true \
+  -e display_name_sha256 '<64-lowercase-hex-digest>' \
+  com.aryasubramani.vijibackup.internal.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+After the action, launch the app, prove only that mapping is degraded, scan a
+healthy mapping, and repair by selecting the same dedicated tree. End with the
+redacted live-state probe and a full source-content sentinel comparison.
 
 Real user interaction is required for system picker and account chooser steps.
 An instrumentation provider may force null cursors, cycles, loading cursors, and

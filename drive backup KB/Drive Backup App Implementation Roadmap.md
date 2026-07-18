@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-implementation-roadmap
 status: active
-last_updated: 2026-07-14
+last_updated: 2026-07-16
 context_role: roadmap
 read_when:
   - The agent needs sequencing, milestones, or implementation gates.
@@ -97,8 +97,10 @@ Exit gate:
 
 ## Phase 2: Auth And Allowlist
 
-Status: integrated into `main` through PR #2. Release-only manual cases remain
-tracked in the Phase 2 plan and Testing Plan.
+Status: the implementation is integrated into `main` through PR #2. User-
+journey follow-ups remain open. In particular, the current cold-process
+reauthentication chooser does not meet the intended normal-user persistence
+behavior and is a prerequisite before Drive setup.
 
 Load:
 
@@ -117,12 +119,17 @@ Deliverables:
 Exit gate:
 
 - Approved account enters app; unapproved account cannot sync.
+- A returning user is not shown a Google account chooser on ordinary relaunch;
+  explicit sign-out, account removal, revoked access, or required security
+  reauthentication remains an exception.
 
 ## Phase 3: Local Folder Selection
 
-Status: the implemented folder-selection slices are integrated into `main`
-through PR #4. Health classification and iterative read-only scanning remain
-open. The adversarially reviewed execution contract is
+Status: the initial folder-selection slices are integrated into `main` through
+PR #4. The completion branch and draft PR #5 now contain typed health,
+enablement, iterative read-only scanning, protected controls, durable sign-out
+recovery, and the completed safe Samsung live matrix. Whole-branch review is the
+only remaining Phase 3 merge gate. The execution contract is
 [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]].
 
 Load:
@@ -144,7 +151,13 @@ Exit gate:
 
 - User-selected internal folder can be scanned after app restart.
 
-## Phase 4: Drive Destination Setup
+## Phase 4: Downloads Source And Drive Destination Setup
+
+Entry prerequisites:
+
+- Phase 2 session persistence behavior is corrected and live-proven.
+- Current-account and explicit account-change behavior are defined.
+- Folder access health is visibly distinguished from backup health.
 
 Load:
 
@@ -154,6 +167,10 @@ Load:
 
 Deliverables:
 
+- first milestone: explicit opt-in exact top-level Downloads source using the
+  Android all-files-access settings flow;
+- read-only Downloads traversal, revocation detection, and Samsung acceptance,
+  isolated from the default SAF source path;
 - shared parent folder connection;
 - per-user/per-device folder creation;
 - Drive destination health check;
@@ -162,7 +179,8 @@ Deliverables:
 
 Exit gate:
 
-- App can create a test file in the shared folder using the signed-in user's account.
+- App can enumerate exact top-level Downloads read only after explicit consent,
+  and create a test file in the shared folder using the signed-in user's account.
 
 ## Phase 5: Sync Engine
 

@@ -9,6 +9,8 @@ import com.aryasubramani.vijibackup.auth.data.LoadAuthSessionResult
 import com.aryasubramani.vijibackup.auth.data.SignOutResult
 import com.aryasubramani.vijibackup.auth.google.GoogleSignInMode
 import com.aryasubramani.vijibackup.auth.google.GoogleSignInResult
+import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +19,8 @@ import kotlinx.coroutines.launch
 class AuthViewModel(
     private val sessionManager: AuthSessionManager,
     private val isGoogleSignInConfigured: Boolean,
+    private val prepareForSignOut: suspend () -> PendingFolderCleanupResult =
+        { PendingFolderCleanupResult.Complete },
 ) : ViewModel() {
     private val mutableUiState = MutableStateFlow<AuthUiState>(AuthUiState.Initializing)
     private var nextOperationId = 0L
@@ -215,14 +219,23 @@ class AuthViewModel(
         retryAction = null
         mutableUiState.value = AuthUiState.SigningOut
         viewModelScope.launch {
+            val pendingPickerCleanupIncomplete = try {
+                prepareForSignOut() == PendingFolderCleanupResult.RetryRequired
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                true
+            }
             mutableUiState.value = when (val result = sessionManager.signOut()) {
                 is SignOutResult.SignedOut -> {
                     retryAction = null
                     AuthUiState.SignedOut(
-                        warning = if (result.providerStateCleared) {
-                            null
-                        } else {
-                            AuthWarning.ProviderStateNotCleared
+                        warning = when {
+                            pendingPickerCleanupIncomplete ->
+                                AuthWarning.SignOutCleanupIncomplete
+                            !result.providerStateCleared ->
+                                AuthWarning.ProviderStateNotCleared
+                            else -> null
                         },
                     )
                 }
@@ -242,6 +255,8 @@ class AuthViewModel(
     class Factory(
         private val sessionManager: AuthSessionManager,
         private val isGoogleSignInConfigured: Boolean,
+        private val prepareForSignOut: suspend () -> PendingFolderCleanupResult =
+            { PendingFolderCleanupResult.Complete },
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -251,6 +266,7 @@ class AuthViewModel(
             return AuthViewModel(
                 sessionManager = sessionManager,
                 isGoogleSignInConfigured = isGoogleSignInConfigured,
+                prepareForSignOut = prepareForSignOut,
             ) as T
         }
     }

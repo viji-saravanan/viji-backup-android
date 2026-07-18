@@ -1,7 +1,7 @@
 ---
 doc_id: drive-backup-app-project-state
 status: active
-last_updated: 2026-07-14
+last_updated: 2026-07-16
 context_role: current-state
 read_when:
   - The agent needs to understand the current local scaffold before implementation.
@@ -32,8 +32,11 @@ Phase 1 foundation, Phase 2 authentication, the public-source workflow, and the
 implemented Phase 3 local-folder slices are integrated on `main` through PRs
 #1-#4. Their implementation packets, architecture, failure matrix, security
 rules, source register, and physical-device acceptance matrix are committed
-alongside the code. Remaining Phase 3 health and scan work must begin from a new
-branch based on this integrated baseline.
+alongside the code. The active completion branch now contains the remaining
+typed health, durable enablement, scanner, per-mapping orchestration, protected
+control surface, and durable pending-picker sign-out recovery. The safe live
+Samsung closure matrix is complete and recorded below. The branch remains a
+draft PR until the intentionally deferred whole-branch review is performed.
 
 Implemented Phase 2 slices:
 
@@ -73,12 +76,41 @@ Implemented Phase 3 slices:
   and disabled competing mutations;
 - process-scope auth regression coverage proving Home, picker round trips, and
   activity recreation do not repeatedly invoke Google sign-in.
+- sign-out compensation that serializes and retries pending picker cleanup
+  before local auth state is cleared, without blocking sign-out on one cleanup
+  failure;
+- an exact-token DataStore cleanup intent that survives process recreation when
+  Room cannot mark pending picker work, is excluded from backup and transfer,
+  and cannot retire a newer picker request;
+- per-launch picker callback identity that discards a retired pre-sign-out
+  result without consuming a post-sign-in replacement, including activity
+  recreation;
+- typed live root health validation from exact persisted grants and one
+  read-only root query, including provider authentication, explicit missing
+  roots, temporary failures, cancellation, and terminal-state enforcement;
+- durable idempotent enable/disable state with typed repository failures,
+  per-mapping generation ownership, independent concurrent updates, and no
+  health-validator or grant side effects;
+- cold iterative read-only metadata scanning with cycle detection, saturating
+  aggregate progress, exact complete/partial/failed decisions, cancellation
+  propagation, and no filename or raw-identifier output;
+- resolver-owned cursor and cancellation-signal lifetimes with Samsung-tested
+  null, malformed, loading, provider-failure, cancellation, retry, and
+  no-mutation behavior in both flavors;
+- a disabled, variant-safe test-only provider manifest plus physical Samsung
+  fault-path coverage without source-content mutations or test-process startup
+  crashes;
+- repository scan admission that revalidates current access and permits manual
+  scans for disabled-but-readable mappings without admitting degraded roots;
+- independent generation-owned health and scan jobs with monotonic progress,
+  exact cancellation, stale-event suppression, and two-mapping isolation;
+- protected folder controls for enablement, typed health, stable progress,
+  scan/cancel, repair, and confirmed removal without rendering storage IDs.
 
 Not yet implemented after the integrated Phase 3 slices:
 
-- live root health classification and permission-loss repair state;
-- iterative metadata scan, scan progress, cancellation, and per-mapping isolation;
-- enable/disable controls and scan controls;
+- the mandatory exact top-level Downloads source, which is the first Phase 4
+  milestone and requires a separate explicit all-files-access settings flow;
 - Google Drive authorization or destination access;
 - any selected-folder sync behavior;
 - release signing or APK publication.
@@ -128,6 +160,13 @@ Email notification defaults:
   `viji-saravanan`; both commit with their GitHub-provided `noreply` identity.
 - Current workflow intentionally splits commits between Arya personal and Viji.
   Never commit from Arya work.
+- Tracked source and reachable patch content contain no configured account,
+  OAuth, secret, or Drive identifier. Two pre-cleanup GitHub-generated merge
+  commits on `main` still contain one collaborator's personal commit email in
+  commit metadata. It is not an app secret or tracked-source value. Removing it
+  requires a coordinated rewrite of `main` and every descendant collaborator
+  branch, so it is tracked separately from Phase 3 rather than silently
+  force-rewritten during a feature push.
 - Client-side email allowlisting is a convenience gate in an untampered build,
   not an authoritative authorization boundary. A public APK exposes compiled
   identifiers and can be modified. Phase 4 and every future sync operation must
@@ -159,6 +198,15 @@ Email notification defaults:
   automation is not a substitute for those release checks.
 - The physical test phone has about 1.5 GB free and is 99% used. Never delete
   user data automatically; treat low storage as an explicit test and operational risk.
+- The ordinary-user journey audit is tracked in [[Drive Backup App User Journey
+  Gap Audit]]. UX-01 is open: the current cold-process reauthentication chooser
+  appears on app relaunch and does not meet the intended standard user
+  experience. It is a Phase 2 follow-up and a prerequisite before Phase 4.
+- The same audit records the remaining user-facing gaps around mapping
+  identification, Downloads access, access-versus-backup health, preflight,
+  cancellation, partial results, scheduling explanations, recovery, and device
+  constraints. These are phase-owned gates, not reasons to change Phase 3 code
+  without a scoped implementation task.
 - Lint reports seven version-currency warnings. API 36.1, AGP 9.2.1, Gradle
   9.4.1, and the tested dependency set remain pinned for Phase 2. Android 17/API
   37 behavior adoption requires its own upgrade and device matrix instead of
@@ -194,6 +242,101 @@ Observed on 2026-07-11, with the ADB connection reverified on 2026-07-13:
   connected tests; accept it only when every test starts, finishes, and reports
   zero failures.
 
+Additional Phase 3 lifecycle evidence on 2026-07-15:
+
+- the review-discovered sign-out, recreation, re-sign-in, replacement-picker,
+  and late-old-result sequence was witnessed failing before the fix;
+- the focused 7-test state/composition suite and related 58-test repository,
+  state, composition, and auth UI suite passed directly on Samsung user 0;
+- both-flavor JVM tests, app and Android-test APK assembly, and lint passed.
+
+Additional Phase 3 root-health evidence on 2026-07-15:
+
+- the validator's compile and terminal-`Checking` cases were witnessed RED
+  before implementation;
+- 29 validator and 44 repository tests passed directly on Samsung user 0;
+- both-flavor JVM tests, app assembly, Android-test compilation, and
+  Android-test APK assembly passed;
+- the provider manifest check caught and fixed a class-name packaging defect;
+- this zero-mapping observation was the pre-fixture baseline and is superseded
+  by the redacted core live evidence recorded below.
+
+Additional Phase 3 enablement evidence on 2026-07-15:
+
+- the missing enablement contract and presentation state were witnessed RED
+  before implementation;
+- the focused ViewModel suite passed on the JVM, while all 47 repository tests
+  passed directly on Samsung user 0;
+- all 29 validator tests and all 4 app-composition tests passed again after the
+  test provider was made disabled-by-default to prevent pre-instrumentation
+  classloader failure;
+- both-flavor JVM tests, app assembly, and Android-test APK assembly passed;
+- disabled-but-ready manual scan remains a Task 6 gate and is not yet claimed.
+
+Additional Phase 3 scanner evidence on 2026-07-15:
+
+- missing scanner contracts and missing hostile-provider controls were
+  witnessed RED before implementation;
+- all 14 pure iterative-scanner tests passed for both flavors;
+- all 7 resolver-facing scanner tests passed directly on Samsung user 0 for
+  both internal and public flavors, and all 29 validator tests passed again;
+- the complete two-flavor JVM, app APK, and Android-test APK matrix passed;
+- whole-Downloads support is now a confirmed final-app requirement, but remains
+  a separate explicit all-files-access source rather than a false SAF claim.
+
+Additional Phase 3 orchestration and core live evidence on 2026-07-15:
+
+- the scan-admission and ViewModel contracts were witnessed RED before
+  implementation; focused orchestration tests pass for both flavors;
+- all 51 Room repository tests and all 11 protected-folder Compose tests passed
+  directly on Samsung Android user 0 with no failures;
+- the canonical 179-task two-flavor unit, app APK, Android-test APK, and lint
+  matrix passed from one `--no-configuration-cache` invocation;
+- `adb install --no-streaming -r` preserved app data, and direct
+  `am instrument --user 0` reported 2 named mappings, 2 persisted tree grants,
+  0 write grants, and no pending picker operation;
+- real scans completed for a small nested tree and a dedicated 1,502-file tree;
+  cancelling the larger scan changed only that mapping, and retry completed;
+- the dedicated 1,502-file before/after content sentinel was byte-for-byte
+  unchanged;
+- this evidence is superseded by the completed 2026-07-16 recovery matrix below.
+
+Phase 3 closure evidence on 2026-07-16:
+
+- the review-discovered pending-picker restart defect is fixed with an
+  exact-token durable cleanup intent while Room remains schema 1; both flavor
+  host suites, focused file-backed Room recreation tests, and focused Samsung
+  instrumentation pass;
+- ViewModel tests now cover complete, partial, failed, terminal-less, throwing,
+  non-cooperative late-event, cancel-versus-complete, and concurrent
+  failed/healthy scan behavior; no production defect was exposed;
+- a controllable `ActivityResultRegistry` test launches a real dynamic registry
+  key, recreates `MainActivity`, dispatches through the restored request code,
+  and proves exactly one completion with the original request token;
+- the canonical 179-task two-flavor unit, app APK, Android-test APK, and lint
+  matrix passes with 115 JVM tests per flavor; the complete Android
+  instrumentation package passes 160 tests per flavor on Samsung user 0;
+- the final redacted live probe reports 3 named mappings, 3 persisted tree read
+  grants, 0 write grants, and no pending picker operation after in-place APK
+  replacement without clearing app data;
+- a real 1,502-file scan completed across 5 folders with 0 unreadable entries;
+  complete content manifests remained identical after scan, grant revocation,
+  same-tree repair, confirmed removal, re-add, move/repair, and restoration;
+- explicit grant revocation degraded only the selected mapping, a healthy
+  mapping remained scannable, and selecting the same tree restored the mapping
+  without releasing the replacement grant;
+- live picker cancellation created no mapping, exact duplicate selection was
+  rejected, confirmed removal released app access without deleting files, and
+  re-adding restored the expected 3-mapping baseline;
+- a second configured approved identity viewed the installation-scoped mappings
+  and completed a real 2-file scan with 0 unreadable entries;
+- moving the dedicated tree produced a typed temporary-unavailable state after
+  revalidation; repair followed the moved tree, and the original name and
+  mapping were restored without content change;
+- the recent-apps preview rendered protected content blank, and the reviewed
+  app-process log contained zero email, content-URI, OAuth-client, JWT-shaped,
+  UUID-shaped, or live-label matches.
+
 ## Current Passing Checks
 
 ```bash
@@ -217,22 +360,18 @@ proving a clean checkout reaches the intended fail-closed setup state.
 
 ## Immediate Goal
 
-Complete Phase 3 health and read-only metadata scanning without weakening the
-tested process-scope auth boundary or claiming that Android's local-only picker
-hint proves physical locality.
+Push the completed Phase 3 implementation and live-acceptance closure to its
+existing draft PR. Keep the explicitly deferred whole-branch review as the only
+Phase 3 merge gate, then begin Phase 4 on a new branch from this exact Phase 3
+head when the project owner signals.
 
 Next sequence:
 
-- finish live backfill acceptance for the two existing real mappings;
-- record one explicitly chosen live removal/re-add case without touching the
-  other mapping;
-- implement health, read-only scan, cancellation, and per-mapping isolation in
-  red-green vertical slices without mutating source content;
-- run the full automated regression and every physical Samsung
-  `FOLDER-LIVE-*` acceptance case;
+- push the completion branch and refresh the comprehensive draft PR;
+- run the deferred whole-branch review before merge;
 - keep configured APKs and raw live evidence out of public CI and Git;
-- defer real Drive authorization and upload acceptance to Phase 4, where the
-  current Google account and shared-folder ACL must be checked.
+- begin Phase 4 on explicit user signal, first closing UX-01 cold-launch sign-in
+  persistence and exact top-level Downloads access before Drive authorization.
 
 ## Next Notes
 
@@ -241,5 +380,6 @@ Next sequence:
 - [[Drive Backup App GitHub And Release Workflow]]
 - [[Drive Backup App Testing Plan]]
 - [[Drive Backup App Context Packets]]
+- [[Drive Backup App User Journey Gap Audit]]
 - [[Drive Backup App Fresh Laptop Setup And Test Runbook]]
 - [[Drive Backup App Phase 3 Local Folder Access Implementation Plan]]

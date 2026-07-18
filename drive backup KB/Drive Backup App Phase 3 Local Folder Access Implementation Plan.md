@@ -1,12 +1,12 @@
 ---
 doc_id: drive-backup-app-phase-3-local-folder-access-implementation-plan
 status: active
-last_updated: 2026-07-13
+last_updated: 2026-07-16
 context_role: implementation-plan
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
 execution: code
-execution_status: implementing
+execution_status: implementation-and-live-closure-complete
 read_when:
   - The agent implements, reviews, or tests Phase 3 local folder access.
   - The agent changes folder mappings, SAF URI grants, local tree scanning, or permission repair.
@@ -36,15 +36,20 @@ Drive implementation.
 
 ## Implementation Checkpoint
 
-As of 2026-07-13, Room schema 1, durable picker correlation, read-only grant
+As of 2026-07-16, Room schema 1, durable picker correlation, read-only grant
 acquisition/reconciliation, add, repair, display-name resolution/backfill,
-confirmed removal, and the approved folder UI are implemented on the Phase 3
-branch. Process-scope approval survives Home, DocumentsUI, and activity
-recreation; a cold process still reauthenticates.
+confirmed removal, typed root health, and durable enablement orchestration are
+implemented on the Phase 3 completion branch. Process-scope approval survives
+Home, DocumentsUI, and activity recreation; a cold process still
+reauthenticates.
 
-Health classification, iterative scanning, scan cancellation, enable/disable,
-sign-out compensation for pending picker work, and the full restart/upgrade live
-matrix remain incomplete. Phase 3 must not be described as complete yet.
+Iterative scanning, scan cancellation, enable/disable controls, per-mapping scan
+orchestration, and protected folder controls are implemented. The canonical
+two-flavor matrix and core Samsung add/read-only-grant/scan/cancel/retry/source-
+sentinel cases pass. Grant-loss repair, controlled live removal,
+co-administrator switching, tree move/repair, recent-apps redaction, and the
+redacted log audit now pass on the Samsung baseline. Whole-branch review remains
+the only pre-merge Phase 3 gate.
 
 ## Confirmed Product Inputs
 
@@ -64,9 +69,11 @@ matrix remain incomplete. Phase 3 must not be described as complete yet.
   It never deletes local or future Drive content.
 - Exact duplicate mappings are rejected. Parent/child overlap policy belongs to
   Phase 5, where duplicate upload and destination semantics are available.
-- The current SAF source accepts only locations the system picker grants. It
-  does not request broad storage access. A dedicated full-Downloads source is a
-  separate unresolved product/security decision.
+- The current SAF source accepts only locations the system picker grants and
+  does not request broad storage access. The final app must also support the
+  exact Downloads root through a separate, explicit all-files-access source.
+  It is the first mandatory Phase 4 milestone and must not weaken or masquerade
+  as the SAF permission model.
 
 ## Non-Negotiable Android Limits
 
@@ -80,9 +87,11 @@ folder picker does not grant tree access to:
 - `Android/obb` or any descendant.
 
 A subfolder inside Downloads can be selected when the provider permits it. The
-exact Downloads root cannot be promised under the chosen SAF model. Adding
-`MANAGE_EXTERNAL_STORAGE` would be a separate security and product decision and
-must not be introduced silently in this phase.
+exact Downloads root cannot be granted under the chosen SAF model. The user has
+confirmed whole-Downloads coverage is mandatory for the final app, so a later
+source must use an explicit `MANAGE_EXTERNAL_STORAGE` settings flow, remain
+read-only in app code, detect revocation, and receive separate Samsung
+acceptance. It must not be introduced silently in this phase.
 
 `Intent.EXTRA_LOCAL_ONLY` narrows the picker toward local providers, but Android
 documents it as a hint. It is not proof that a returned tree is primary internal
@@ -395,13 +404,19 @@ Configuration, access health, and scan state are orthogonal.
 | `Checking` | Persisted grant and root are being verified |
 | `Ready` | Exact persisted read grant exists and root metadata is readable |
 | `PermissionMissing` | Persisted read grant is absent |
-| `TreeMissing` | Grant exists but selected root was moved or deleted |
+| `TreeMissing` | Grant exists and the provider explicitly confirms the selected root is absent |
 | `ProviderAuthRequired` | Provider reports its own authentication requirement |
 | `TemporarilyUnavailable` | Provider failed temporarily or returned null |
 
 Catch `AuthenticationRequiredException` before the broader `SecurityException`.
 Do not collapse provider authentication, absent app grant, missing tree, and
 temporary provider failure into one repair message.
+
+Do not infer `TreeMissing` from exception text. Android's standard
+`DocumentsProvider` query bridge can translate a provider
+`FileNotFoundException` into a null cursor. That indistinguishable result is
+`TemporarilyUnavailable`; a direct preserved missing-root signal or a valid
+empty root cursor is `TreeMissing`. Repair remains available in either state.
 
 | Scan state | Meaning |
 |---|---|
@@ -732,8 +747,9 @@ and UI states that consume the changed contract.
 
 ## Branch, Commit, And Review Contract
 
-- Branch: `feature/phase-3-local-folder-selection`.
-- Base: `feature/phase-2-auth-allowlist` until the stacked PRs are integrated.
+- Branch: `feature/phase-3-folder-health-scan` for the remaining completion work.
+- Base: integrated `main` after PRs #1-#4. The earlier stacked Phase 3 branch is
+  merged and must not be reused for new completion commits.
 - Keep planning, persistence, SAF adapter, scanner, presentation, tests, live
   evidence, and KB closure in separate logical commits.
 - Use the GitHub account switcher before every commit and every push.
@@ -741,10 +757,12 @@ and UI states that consume the changed contract.
   boundaries permit.
 - Never push `.env`, `private.properties`, OAuth JSON, tokens, raw account data,
   device serials, raw SAF URIs, or live filenames.
-- Open a draft stacked PR as soon as the first coherent Phase 3 slice is pushed.
+- Open a draft PR from the completion branch as soon as the first coherent
+  remaining Phase 3 slice is pushed.
 - Add a comprehensive PR comment after each push with tests run, live cases run,
   known gaps, and next slice.
-- Do not merge Phase 3 before its base PRs and required review are resolved.
+- Do not merge the completion branch before required review and the Phase 3 exit
+  gate are resolved.
 
 ## Exit Gate
 
@@ -767,6 +785,14 @@ Phase 3 is complete only when all are true:
 - KB, fresh-laptop instructions, source register, project state, and PR evidence
   match the implementation;
 - every deferred hardware case remains explicitly tracked.
+
+The implementation and safe live exit gate passed on the Samsung/API 34
+baseline on 2026-07-16. Final state was 3 named mappings, 3 persisted read
+grants, 0 write grants, and no pending picker operation. Full content manifests
+for the dedicated 1,502-file tree matched after scan, cancellation, grant
+revocation, same-tree repair, remove/re-add, move/repair, and restoration. The
+whole-branch review remains a separate, intentionally deferred pre-merge gate;
+it does not invalidate the completed implementation or live evidence.
 
 ## Official Sources
 

@@ -11,18 +11,31 @@ import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationS
 import com.aryasubramani.vijibackup.folderaccess.data.db.PendingFolderOperationType
 import com.aryasubramani.vijibackup.folderaccess.data.db.VijiBackupDatabase
 import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderPickerResult
+import com.aryasubramani.vijibackup.folderaccess.domain.BeginFolderScanResult
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderAccessHealth
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerCompletion
 import com.aryasubramani.vijibackup.folderaccess.domain.FolderPickerSelection
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanEvent
+import com.aryasubramani.vijibackup.folderaccess.domain.FolderScanProgress
+import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderAccessValidator
 import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderMetadataReader
+import com.aryasubramani.vijibackup.folderaccess.domain.LocalFolderScanner
+import com.aryasubramani.vijibackup.folderaccess.domain.PendingFolderCleanupResult
 import com.aryasubramani.vijibackup.folderaccess.domain.RemoveFolderResult
+import com.aryasubramani.vijibackup.folderaccess.domain.SetFolderEnabledResult
+import com.aryasubramani.vijibackup.folderaccess.domain.ValidateFolderAccessResult
 import com.aryasubramani.vijibackup.folderaccess.saf.AcquireReadGrantResult
 import com.aryasubramani.vijibackup.folderaccess.saf.GrantReleaseResult
 import com.aryasubramani.vijibackup.folderaccess.saf.LocalFolderGrantManager
 import com.aryasubramani.vijibackup.folderaccess.saf.PersistedFolderGrant
 import com.aryasubramani.vijibackup.folderaccess.saf.WriteGrantRemovalResult
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -38,6 +51,9 @@ class RoomFolderMappingRepositoryInstrumentedTest {
     private lateinit var database: VijiBackupDatabase
     private lateinit var grants: RecordingGrantManager
     private lateinit var metadata: RecordingFolderMetadataReader
+    private lateinit var accessValidator: RecordingFolderAccessValidator
+    private lateinit var scanner: RecordingLocalFolderScanner
+    private lateinit var signOutIntentStore: RecordingSignOutCleanupIntentStore
     private lateinit var repository: RoomFolderMappingRepository
     private val requestTokens = ArrayDeque(listOf("request-a", "request-b", "request-c"))
     private val mappingIds = ArrayDeque(listOf("mapping-a", "mapping-b", "mapping-c"))
@@ -52,10 +68,16 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         ).build()
         grants = RecordingGrantManager()
         metadata = RecordingFolderMetadataReader()
+        accessValidator = RecordingFolderAccessValidator()
+        scanner = RecordingLocalFolderScanner()
+        signOutIntentStore = RecordingSignOutCleanupIntentStore()
         repository = RoomFolderMappingRepository(
             dao = database.folderAccessDao(),
+            signOutCleanupIntentStore = signOutIntentStore,
             grantManager = grants,
             metadataReader = metadata,
+            accessValidator = accessValidator,
+            scanner = scanner,
             ioDispatcher = Dispatchers.IO,
             requestTokenFactory = { requestTokens.removeFirst() },
             mappingIdFactory = { mappingIds.removeFirst() },
@@ -101,6 +123,222 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         )
         assertTrue(grants.acquireCalls.isEmpty())
         assertEquals("request-a", database.folderAccessDao().pendingOperation()?.requestToken)
+    }
+
+    @Test
+    fun validateResolvesExactMappingAndReturnsTypedHealth() = runTest {
+        val treeUri = "content://provider.test/tree/health-ready"
+        database.folderAccessDao().insertMapping(mapping("mapping-health", treeUri))
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.Ready
+
+        assertEquals(
+            ValidateFolderAccessResult.Found(FolderAccessHealth.Ready),
+            repository.validate("mapping-health"),
+        )
+        assertEquals(listOf(treeUri), accessValidator.requests)
+    }
+
+    @Test
+    fun validateMissingMappingDoesNotTouchProvider() = runTest {
+        assertEquals(
+            ValidateFolderAccessResult.MappingNotFound,
+            repository.validate("missing-mapping"),
+        )
+        assertTrue(accessValidator.requests.isEmpty())
+    }
+
+    @Test
+    fun validateUnexpectedAdapterFailureIsStorageFailureWithoutDetails() = runTest {
+        val treeUri = "content://provider.test/tree/health-failure"
+        database.folderAccessDao().insertMapping(mapping("mapping-health", treeUri))
+        accessValidator.failure = IllegalStateException("sensitive-provider-detail")
+
+        assertEquals(
+            ValidateFolderAccessResult.StorageFailure,
+            repository.validate("mapping-health"),
+        )
+    }
+
+    @Test
+    fun validateRejectsPresentationOnlyCheckingState() = runTest {
+        val treeUri = "content://provider.test/tree/health-checking"
+        database.folderAccessDao().insertMapping(mapping("mapping-health", treeUri))
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.Checking
+
+        assertEquals(
+            ValidateFolderAccessResult.StorageFailure,
+            repository.validate("mapping-health"),
+        )
+    }
+
+    @Test
+    fun validateDatabaseFailureDoesNotTouchProvider() = runTest {
+        val treeUri = "content://provider.test/tree/health-storage-failure"
+        database.folderAccessDao().insertMapping(mapping("mapping-health", treeUri))
+        database.close()
+
+        assertEquals(
+            ValidateFolderAccessResult.StorageFailure,
+            repository.validate("mapping-health"),
+        )
+        assertTrue(accessValidator.requests.isEmpty())
+    }
+
+    @Test
+    fun validateCancellationPropagatesAndCanBeRetried() = runTest {
+        val treeUri = "content://provider.test/tree/health-cancel"
+        database.folderAccessDao().insertMapping(mapping("mapping-health", treeUri))
+        accessValidator.failure = CancellationException("test cancellation")
+
+        var cancellation: CancellationException? = null
+        try {
+            repository.validate("mapping-health")
+        } catch (error: CancellationException) {
+            cancellation = error
+        }
+        assertTrue("Expected validation cancellation", cancellation != null)
+
+        accessValidator.failure = null
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.PermissionMissing
+        assertEquals(
+            ValidateFolderAccessResult.Found(FolderAccessHealth.PermissionMissing),
+            repository.validate("mapping-health"),
+        )
+    }
+
+    @Test
+    fun beginScanValidatesExactMappingAndAllowsDisabledReadyMapping() = runTest {
+        val treeUri = "content://provider.test/tree/scan-ready"
+        database.folderAccessDao().insertMapping(
+            mapping("mapping-scan", treeUri).copy(enabled = false),
+        )
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.Ready
+        scanner.eventsByTreeUri[treeUri] = listOf(
+            FolderScanEvent.Progress(FolderScanProgress(filesDiscovered = 1)),
+        )
+
+        val result = repository.beginScan("mapping-scan") as BeginFolderScanResult.Ready
+
+        assertEquals(scanner.eventsByTreeUri.getValue(treeUri), result.events.toList())
+        assertEquals(listOf(treeUri), accessValidator.requests)
+        assertEquals(listOf(treeUri), scanner.requests)
+    }
+
+    @Test
+    fun beginScanRejectsEveryUnavailableHealthBeforeScannerCreation() = runTest {
+        val unavailableHealth = FolderAccessHealth.entries -
+            setOf(FolderAccessHealth.Checking, FolderAccessHealth.Ready)
+
+        unavailableHealth.forEachIndexed { index, health ->
+            val mappingId = "mapping-unavailable-$index"
+            val treeUri = "content://provider.test/tree/scan-unavailable-$index"
+            database.folderAccessDao().insertMapping(mapping(mappingId, treeUri))
+            accessValidator.healthByTreeUri[treeUri] = health
+
+            assertEquals(
+                BeginFolderScanResult.AccessUnavailable(health),
+                repository.beginScan(mappingId),
+            )
+        }
+
+        assertTrue(scanner.requests.isEmpty())
+    }
+
+    @Test
+    fun beginScanMissingCheckingAndAdapterFailureAreTypedWithoutScannerWork() = runTest {
+        assertEquals(
+            BeginFolderScanResult.MappingNotFound,
+            repository.beginScan("missing-mapping"),
+        )
+
+        val treeUri = "content://provider.test/tree/scan-checking"
+        database.folderAccessDao().insertMapping(mapping("mapping-scan", treeUri))
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.Checking
+        assertEquals(
+            BeginFolderScanResult.StorageFailure,
+            repository.beginScan("mapping-scan"),
+        )
+
+        accessValidator.failure = IllegalStateException("sensitive-provider-detail")
+        assertEquals(
+            BeginFolderScanResult.StorageFailure,
+            repository.beginScan("mapping-scan"),
+        )
+        assertTrue(scanner.requests.isEmpty())
+    }
+
+    @Test
+    fun beginScanCancellationPropagatesAndCanBeRetried() = runTest {
+        val treeUri = "content://provider.test/tree/scan-cancel"
+        database.folderAccessDao().insertMapping(mapping("mapping-scan", treeUri))
+        accessValidator.failure = CancellationException("test cancellation")
+
+        assertInitializationCancelled { repository.beginScan("mapping-scan") }
+
+        accessValidator.failure = null
+        accessValidator.healthByTreeUri[treeUri] = FolderAccessHealth.Ready
+        assertTrue(repository.beginScan("mapping-scan") is BeginFolderScanResult.Ready)
+        assertEquals(listOf(treeUri), scanner.requests)
+    }
+
+    @Test
+    fun setEnabledPersistsTrueFalseAndIdempotentRequestsWithoutHealthOrGrantWork() = runTest {
+        val treeUri = "content://provider.test/tree/enabled-state"
+        database.folderAccessDao().insertMapping(
+            mapping("mapping-enabled", treeUri).copy(enabled = true),
+        )
+
+        assertEquals(
+            SetFolderEnabledResult.Updated,
+            repository.setEnabled("mapping-enabled", true),
+        )
+        assertTrue(requireNotNull(database.folderAccessDao().mappingById("mapping-enabled")).enabled)
+
+        assertEquals(
+            SetFolderEnabledResult.Updated,
+            repository.setEnabled("mapping-enabled", false),
+        )
+        assertEquals(
+            false,
+            requireNotNull(database.folderAccessDao().mappingById("mapping-enabled")).enabled,
+        )
+
+        assertEquals(
+            SetFolderEnabledResult.Updated,
+            repository.setEnabled("mapping-enabled", false),
+        )
+        assertTrue(accessValidator.requests.isEmpty())
+        assertTrue(grants.acquireCalls.isEmpty())
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun setEnabledMissingMappingHasNoProviderOrGrantSideEffects() = runTest {
+        assertEquals(
+            SetFolderEnabledResult.MappingNotFound,
+            repository.setEnabled("missing-mapping", false),
+        )
+
+        assertTrue(accessValidator.requests.isEmpty())
+        assertTrue(grants.acquireCalls.isEmpty())
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun setEnabledDatabaseFailureIsTypedAndDoesNotTouchProvider() = runTest {
+        database.folderAccessDao().insertMapping(
+            mapping(
+                id = "mapping-enabled",
+                treeUri = "content://provider.test/tree/enabled-storage-failure",
+            ),
+        )
+        database.close()
+
+        assertEquals(
+            SetFolderEnabledResult.StorageFailure,
+            repository.setEnabled("mapping-enabled", false),
+        )
+        assertTrue(accessValidator.requests.isEmpty())
     }
 
     @Test
@@ -315,6 +553,203 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         assertEquals(1, grants.acquireCalls.size)
         assertNull(database.folderAccessDao().pendingOperation())
         assertEquals(1, database.folderAccessDao().observeMappings().first().size)
+    }
+
+    @Test
+    fun prepareForSignOutClearsRequestedPendingOperationWithoutGrantSideEffects() = runTest {
+        insertPending(operation = PendingFolderOperationType.Add)
+
+        assertEquals(PendingFolderCleanupResult.Complete, repository.prepareForSignOut())
+
+        assertNull(database.folderAccessDao().pendingOperation())
+        assertTrue(grants.releaseCalls.isEmpty())
+        assertTrue(database.folderAccessDao().observeMappings().first().isEmpty())
+    }
+
+    @Test
+    fun markReturningZeroIsRecoveredAfterDatabaseAndRepositoryRecreation() = runTest {
+        insertPending(operation = PendingFolderOperationType.Add)
+        database.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER ignore_sign_out_mark
+            BEFORE UPDATE OF state ON pending_folder_operations
+            WHEN NEW.state = 'ABANDONING'
+            BEGIN
+                SELECT RAISE(IGNORE);
+            END
+            """.trimIndent(),
+        )
+
+        assertEquals(PendingFolderCleanupResult.RetryRequired, repository.prepareForSignOut())
+
+        database.openHelper.writableDatabase.execSQL("DROP TRIGGER ignore_sign_out_mark")
+        reopenDatabaseAndRepository()
+        assertTrue(repository.beginAdd() is BeginFolderPickerResult.Started)
+    }
+
+    @Test
+    fun markThrowingIsRecoveredAfterDatabaseAndRepositoryRecreation() = runTest {
+        insertPending(operation = PendingFolderOperationType.Add)
+        database.openHelper.writableDatabase.execSQL(
+            """
+            CREATE TRIGGER fail_sign_out_mark
+            BEFORE UPDATE OF state ON pending_folder_operations
+            WHEN NEW.state = 'ABANDONING'
+            BEGIN
+                SELECT RAISE(ABORT, 'forced mark failure');
+            END
+            """.trimIndent(),
+        )
+
+        assertEquals(PendingFolderCleanupResult.RetryRequired, repository.prepareForSignOut())
+
+        database.openHelper.writableDatabase.execSQL("DROP TRIGGER fail_sign_out_mark")
+        reopenDatabaseAndRepository()
+        assertTrue(repository.beginAdd() is BeginFolderPickerResult.Started)
+    }
+
+    @Test
+    fun prepareForSignOutReleasesStagedSelectionAndClearsPendingState() = runTest {
+        val treeUri = "content://provider.test/tree/sign-out-staged"
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+
+        assertEquals(PendingFolderCleanupResult.Complete, repository.prepareForSignOut())
+
+        assertNull(database.folderAccessDao().pendingOperation())
+        assertEquals(listOf(treeUri), grants.releaseCalls)
+    }
+
+    @Test
+    fun prepareForSignOutRetainsSameUriRepairGrantWhileClearingPendingState() = runTest {
+        val treeUri = "content://provider.test/tree/sign-out-same-uri"
+        database.folderAccessDao().insertMapping(mapping("existing-mapping", treeUri))
+        insertPending(
+            operation = PendingFolderOperationType.Repair,
+            targetMappingId = "existing-mapping",
+            selectedTreeUri = treeUri,
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+
+        assertEquals(PendingFolderCleanupResult.Complete, repository.prepareForSignOut())
+
+        assertEquals(treeUri, database.folderAccessDao().mappingById("existing-mapping")?.treeUri)
+        assertNull(database.folderAccessDao().pendingOperation())
+        assertTrue(grants.releaseCalls.isEmpty())
+    }
+
+    @Test
+    fun prepareForSignOutReturnsRetryRequiredWhenGrantReleaseCannotBeVerified() = runTest {
+        val treeUri = "content://provider.test/tree/sign-out-release-failure"
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+        grants.releaseResult = GrantReleaseResult.Failed
+
+        assertEquals(PendingFolderCleanupResult.RetryRequired, repository.prepareForSignOut())
+
+        val pending = requireNotNull(database.folderAccessDao().pendingOperation())
+        assertEquals(PendingFolderOperationState.Abandoning, pending.state)
+        assertEquals(treeUri, pending.selectedTreeUri)
+        assertEquals(listOf(treeUri), grants.releaseCalls)
+    }
+
+    @Test
+    fun prepareForSignOutPropagatesCancellationAndLeavesCleanupRetryable() = runTest {
+        val treeUri = "content://provider.test/tree/sign-out-cancelled"
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+        grants.releaseFailure = CancellationException("test cancellation")
+        var cancellation: CancellationException? = null
+
+        try {
+            repository.prepareForSignOut()
+        } catch (error: CancellationException) {
+            cancellation = error
+        }
+
+        assertTrue("Expected sign-out cleanup cancellation", cancellation != null)
+        val pending = requireNotNull(database.folderAccessDao().pendingOperation())
+        assertEquals(PendingFolderOperationState.Abandoning, pending.state)
+        assertEquals(treeUri, pending.selectedTreeUri)
+
+        grants.releaseFailure = null
+        assertEquals(PendingFolderCleanupResult.Complete, repository.prepareForSignOut())
+        assertNull(database.folderAccessDao().pendingOperation())
+        assertEquals(listOf(treeUri, treeUri), grants.releaseCalls)
+    }
+
+    @Test
+    fun prepareForSignOutRetriesAbandoningCleanupUntilReleaseSucceeds() = runTest {
+        val treeUri = "content://provider.test/tree/sign-out-retry"
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+        grants.releaseResult = GrantReleaseResult.Failed
+
+        assertEquals(PendingFolderCleanupResult.RetryRequired, repository.prepareForSignOut())
+
+        grants.releaseResult = GrantReleaseResult.Released
+        assertEquals(PendingFolderCleanupResult.Complete, repository.prepareForSignOut())
+        assertNull(database.folderAccessDao().pendingOperation())
+        assertEquals(listOf(treeUri, treeUri), grants.releaseCalls)
+    }
+
+    @Test
+    fun retryRequiredSignOutCleanupIsRetriedByNextObservationWithoutAnotherPrepareCall() = runTest {
+        val treeUri = "content://provider.test/tree/sign-out-observe-retry"
+        repository.observeMappings().first()
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+        grants.releaseResult = GrantReleaseResult.Failed
+
+        assertEquals(PendingFolderCleanupResult.RetryRequired, repository.prepareForSignOut())
+
+        grants.releaseResult = GrantReleaseResult.Released
+        assertTrue(repository.observeMappings().first().isEmpty())
+        assertNull(database.folderAccessDao().pendingOperation())
+        assertEquals(listOf(treeUri, treeUri), grants.releaseCalls)
+    }
+
+    @Test
+    fun prepareForSignOutWinsConcurrentCallbackAndLeavesLateCompletionStale() = runTest {
+        val treeUri = "content://provider.test/tree/sign-out-race"
+        insertPending(
+            operation = PendingFolderOperationType.Add,
+            selectedTreeUri = treeUri,
+        )
+        grants.persisted = listOf(readGrant(treeUri))
+        grants.releaseStarted = CompletableDeferred()
+        grants.releaseGate = CompletableDeferred()
+
+        val signOut = async { repository.prepareForSignOut() }
+        grants.releaseStarted?.await()
+        val completion = async {
+            repository.completePicker(
+                requestToken = "pending-token",
+                selection = selected(treeUri),
+            )
+        }
+
+        grants.releaseGate?.complete(Unit)
+
+        assertEquals(PendingFolderCleanupResult.Complete, signOut.await())
+        assertEquals(FolderPickerCompletion.Stale, completion.await())
+        assertNull(database.folderAccessDao().pendingOperation())
+        assertTrue(database.folderAccessDao().observeMappings().first().isEmpty())
     }
 
     @Test
@@ -533,8 +968,11 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         )
         repository = RoomFolderMappingRepository(
             dao = database.folderAccessDao(),
+            signOutCleanupIntentStore = signOutIntentStore,
             grantManager = grants,
             metadataReader = metadata,
+            accessValidator = accessValidator,
+            scanner = scanner,
             ioDispatcher = Dispatchers.IO,
             requestTokenFactory = { requestTokens.removeFirst() },
             mappingIdFactory = {
@@ -654,6 +1092,27 @@ class RoomFolderMappingRepositoryInstrumentedTest {
         }
     }
 
+    private fun reopenDatabaseAndRepository() {
+        database.close()
+        database = Room.databaseBuilder(
+            context,
+            VijiBackupDatabase::class.java,
+            TEST_DATABASE_NAME,
+        ).build()
+        repository = RoomFolderMappingRepository(
+            dao = database.folderAccessDao(),
+            signOutCleanupIntentStore = signOutIntentStore,
+            grantManager = grants,
+            metadataReader = metadata,
+            accessValidator = accessValidator,
+            scanner = scanner,
+            ioDispatcher = Dispatchers.IO,
+            requestTokenFactory = { requestTokens.removeFirst() },
+            mappingIdFactory = { mappingIds.removeFirst() },
+            clock = { NOW_EPOCH_MS },
+        )
+    }
+
     private fun mapping(id: String, treeUri: String) = LocalFolderMappingEntity(
         id = id,
         treeUri = treeUri,
@@ -682,6 +1141,33 @@ class RoomFolderMappingRepositoryInstrumentedTest {
     }
 }
 
+private class RecordingSignOutCleanupIntentStore : SignOutCleanupIntentStore {
+    private var requestToken: String? = null
+
+    override suspend fun readRequestToken(): String? = requestToken
+
+    override suspend fun writeRequestToken(requestToken: String) {
+        this.requestToken = requestToken
+    }
+
+    override suspend fun clearRequestToken(requestToken: String): Boolean {
+        if (this.requestToken != null && this.requestToken != requestToken) return false
+        this.requestToken = null
+        return true
+    }
+}
+
+private class RecordingLocalFolderScanner : LocalFolderScanner {
+    val requests = mutableListOf<String>()
+    val eventsByTreeUri = mutableMapOf<String, List<FolderScanEvent>>()
+
+    override fun scan(treeUri: String) = flowOf(
+        *eventsByTreeUri.getOrElse(treeUri) { emptyList() }.toTypedArray(),
+    ).also {
+        requests += treeUri
+    }
+}
+
 private class RecordingGrantManager : LocalFolderGrantManager {
     val acquireCalls = mutableListOf<FolderPickerSelection.Selected>()
     val releaseCalls = mutableListOf<String>()
@@ -694,6 +1180,8 @@ private class RecordingGrantManager : LocalFolderGrantManager {
     var persistedGrantReads = 0
     var persistedFailure: Throwable? = null
     var releaseFailure: Throwable? = null
+    var releaseStarted: CompletableDeferred<Unit>? = null
+    var releaseGate: CompletableDeferred<Unit>? = null
 
     override suspend fun persistedGrants(): List<PersistedFolderGrant> {
         persistedGrantReads += 1
@@ -719,6 +1207,8 @@ private class RecordingGrantManager : LocalFolderGrantManager {
 
     override suspend fun releaseGrant(treeUri: String): GrantReleaseResult {
         releaseCalls += treeUri
+        releaseStarted?.complete(Unit)
+        releaseGate?.await()
         releaseFailure?.let { throw it }
         return releaseResult
     }
@@ -733,5 +1223,17 @@ private class RecordingFolderMetadataReader : LocalFolderMetadataReader {
         reads += treeUri
         failure?.let { throw it }
         return displayNames[treeUri]
+    }
+}
+
+private class RecordingFolderAccessValidator : LocalFolderAccessValidator {
+    val healthByTreeUri = mutableMapOf<String, FolderAccessHealth>()
+    val requests = mutableListOf<String>()
+    var failure: Throwable? = null
+
+    override suspend fun validate(treeUri: String): FolderAccessHealth {
+        requests += treeUri
+        failure?.let { throw it }
+        return healthByTreeUri[treeUri] ?: FolderAccessHealth.TemporarilyUnavailable
     }
 }
