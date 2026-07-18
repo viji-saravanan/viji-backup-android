@@ -155,8 +155,9 @@ Exit gate:
 Status: active. Session persistence, exact Downloads, account-bound Drive
 authorization, and configured-destination health are implemented with physical
 Samsung evidence. The next implementation milestone is the per-user/per-device
-destination contract and controlled create probe; the remaining destructive
-Drive revocation and offline cases stay explicit pre-merge gates.
+destination contract and controlled create probe; the remaining Drive grant-
+revocation, consent, ACL, airplane-mode, and interruption cases stay explicit
+pre-merge gates.
 
 Entry prerequisites:
 

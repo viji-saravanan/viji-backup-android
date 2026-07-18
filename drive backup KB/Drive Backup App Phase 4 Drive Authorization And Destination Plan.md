@@ -175,7 +175,9 @@ Drive error message in UI, logs, exceptions, test names, commits, or PR output.
 - [ ] Restore Editor access and recover with Retry.
 - [ ] Revoke Google Drive grant and prove no request reaches Drive with a stale
   token; interactive repair succeeds.
-- [ ] Exercise offline, airplane mode, and interrupted consent as temporary or
+- [x] Disable Wi-Fi and mobile data, refresh, and prove a temporary failure that
+  recovers to `Ready` only after connectivity is restored.
+- [ ] Exercise airplane mode and interrupted consent as temporary or
   authorization states, never success.
 - [ ] Run both flavor unit/APK/Android-test APK/lint checks and physical
   instrumented tests on Android user 0.
@@ -192,9 +194,17 @@ writable/listable `Ready` state. A force-stop and cold start returned directly
 to that state without account or consent UI. Persistent app-data and app-process
 log scans found no common token markers.
 
+With the same public build, both enabled network transports were disabled and
+external reachability was confirmed absent. A real Refresh returned
+`TemporaryFailure`, never `Ready`. Both original network settings were then
+restored, reachability returned, and a second Refresh recovered to the real
+destination's `Ready` state. No app data, source mapping, or phone file was
+changed by this case.
+
 The unchecked live rows above are deliberately not inferred from deterministic
-tests. Editor ACL changes, Drive grant revocation, offline mode, and user
-cancellation remain required before this plan's full exit gate can be claimed.
+tests. Editor ACL changes, Drive grant revocation, airplane/interrupted-consent
+behavior, and user cancellation remain required before this plan's full exit
+gate can be claimed.
 
 ## Exit Gate
 

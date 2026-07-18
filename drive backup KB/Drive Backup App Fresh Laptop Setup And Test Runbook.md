@@ -613,6 +613,12 @@ response.
 | DRIVE-LIVE-08 | Change approved app account during/after consent | Old callback is ignored; new account receives its own silent check |
 | DRIVE-LIVE-09 | Force-stop during Google resolution and reopen | Uncorrelated result is discarded; app silently rechecks and requests repair if needed |
 
+Redacted evidence current on 2026-07-18: `DRIVE-LIVE-01`,
+`DRIVE-LIVE-03`, and `DRIVE-LIVE-07` pass on the physical Samsung public build.
+For `DRIVE-LIVE-07`, both originally enabled network settings were restored and
+external reachability was rechecked before the recovery Refresh. The other rows
+remain unclaimed until executed against the real service boundary.
+
 After live acceptance, scan persistent app data and app-process logcat for
 common token markers. Report only zero/nonzero counts. Treat any match as a
 release blocker until reviewed privately.

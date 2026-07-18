@@ -386,7 +386,8 @@ Phase 4 session and Downloads evidence on 2026-07-18:
 - the public app survives force-stop and in-place replacement, opens directly
   to the approved surface without a Google chooser, and retains its Downloads
   configuration;
-- a visible real Downloads scan reaches `Scan complete`; a separate live probe
+- a visible real Downloads scan reaches `Scan complete` and reports `5.1 GB`
+  through Android's localized short-size formatter; a separate live probe
   cancels, retries, and preserves an identical before/after aggregate metadata
   sentinel;
 - real OS revocation shows `Access required` and no Scan action before any read;
@@ -414,10 +415,13 @@ Phase 4 Drive authorization and destination evidence on 2026-07-18:
   `Ready` without opening Credential Manager, an account chooser, or consent;
 - persistent app-data and app-process-log scans found zero common access-token,
   refresh-token, `Bearer`, or Google token-prefix markers;
+- disabling both enabled phone network transports makes Refresh report a
+  temporary failure; restoring both original settings and refreshing recovers
+  the real destination to `Ready`;
 - all evidence is aggregate/redacted; account, folder, token, response body,
   device serial, and OAuth client values remain outside Git;
-- live cancel/back, Editor removal/restoration, Drive-grant revocation, offline,
-  and interrupted-consent cases remain unclaimed pre-merge gates.
+- live cancel/back, Editor removal/restoration, Drive-grant revocation, airplane
+  mode, and interrupted-consent cases remain unclaimed pre-merge gates.
 
 ## Current Passing Checks
 
@@ -450,7 +454,8 @@ exposing its identifier.
 
 Next sequence:
 
-- finish the remaining Drive cancellation, revocation, and offline live gates;
+- finish the remaining Drive cancellation, ACL, grant-revocation, airplane-mode,
+  and interrupted-consent live gates;
 - create and verify the per-user/per-device destination contract before upload;
 - keep the deferred whole-branch review as a pre-merge gate;
 - keep configured APKs and raw live evidence out of public CI and Git;

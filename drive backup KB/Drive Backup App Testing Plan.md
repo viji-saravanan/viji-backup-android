@@ -311,8 +311,9 @@ Implementation Plan]]. Evidence current on 2026-07-18:
   composition regression suite passes 16/16 on Samsung Android user 0;
 - force-stop and relaunch of the public build opens the approved surface without
   a chooser, retains the configured Downloads source, and reports `Ready`;
-- a visible real Downloads scan reaches `Scan complete`; evidence contains only
-  aggregate state and no account, path, or filename;
+- a visible real Downloads scan reaches `Scan complete` and reports `5.1 GB`
+  through Android's localized short-size formatter; the same UI hierarchy
+  contains no raw byte count, account, path, or filename;
 - a live exact-root probe cancels and retries successfully, while a before/after
   aggregate metadata digest remains unchanged;
 - real OS grant revocation produces `Access required` before any read and hides
@@ -350,13 +351,16 @@ And Destination Plan]]. Evidence current on 2026-07-18:
   folder reports list and add-child capability;
 - force-stop and cold launch reuse the approved app session and Drive grant
   without opening Credential Manager, account selection, or consent;
+- disabling both active phone network settings makes a real Refresh report the
+  temporary-unavailable state; restoring the original settings and refreshing
+  again returns the configured destination to `Ready`;
 - scans of persistent app storage and app-process logcat find no common access-
   token, refresh-token, `Bearer`, or Google token-prefix markers.
 
 Still required for full Drive exit acceptance: live user cancel/back, Editor
-permission removal and restoration, Drive-grant revocation and repair, offline
-or airplane mode, interrupted consent, and the complete latest two-flavor
-connected-device matrix. These remain explicit gaps, not assumed passes.
+permission removal and restoration, Drive-grant revocation and repair, airplane
+mode, interrupted consent, and the complete latest two-flavor connected-device
+matrix. These remain explicit gaps, not assumed passes.
 
 ## Data Set Matrix
 
