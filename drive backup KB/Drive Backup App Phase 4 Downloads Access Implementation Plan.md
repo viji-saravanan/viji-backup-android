@@ -178,7 +178,9 @@ Evidence excludes account addresses, device serials, paths, and filenames.
   failures on the same device.
 - A production public build survives force-stop and in-place replacement,
   reopens without a Google chooser, reports Downloads `Ready`, and completes a
-  real visible scan.
+  real visible scan. A fresh user-driven scan on the same physical build reports
+  `5.1 GB` through Android's localized short-size formatter and exposes no raw
+  byte count.
 - A live exact-root instrumentation probe cancels, retries to a terminal result,
   and produces an identical before/after aggregate metadata sentinel.
 - With the real OS grant revoked, a live probe fails closed before any
